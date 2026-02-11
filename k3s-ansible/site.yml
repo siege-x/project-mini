@@ -1,0 +1,7 @@
+---
+- import_playbook: playbooks/01-prepare-nodes.yml
+- import_playbook: playbooks/02-setup-server.yml
+- import_playbook: playbooks/03-setup-agents.yml
+- import_playbook: playbooks/04-deploy-nginx.yml 
+# [추가] 모니터링 플레이북 등록
+- import_playbook: playbooks/05-setup-monitoring.yml
