@@ -1,0 +1,26 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nginx-hpa
+  namespace: default
+spec:
+  # 어떤 녀석을 늘릴지 지정합니다.
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nginx-deployment # 위에서 만든 deployment 이름과 똑같아야 합니다.
+
+  # [범위 설정]
+  minReplicas: 2  # 아무리 한가해도 파드 2개는 유지해라 (최소 알바생)
+  maxReplicas: 20 # 아무리 바빠도 20개까지만 늘려라 (인건비/서버 터짐 방지)
+
+  # [늘리는 조건]
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        # [핵심] 파드들이 요청한 CPU(100m)의 50%를 넘게 쓰면 파드를 더 뽑아라!
+        # 즉, CPU 사용량이 50m을 넘어가면 자동으로 복제됩니다.
+        averageUtilization: 50
