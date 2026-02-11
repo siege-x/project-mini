@@ -1,0 +1,28 @@
+all:
+  children:
+    # 1. 전체 클러스터 그룹
+    k3s_cluster:
+      children:
+        # 2. Server 그룹 (Master Node)
+        servers:
+          hosts:
+            kube-controller:
+              ansible_host: ${SERVER_IP}
+              ansible_user: ubuntu
+              ansible_ssh_private_key_file: ~/.ssh/id_rsa
+
+        # 3. Agent 그룹 (Worker Node)
+        # [중요] 우리는 Fixed Agent 딱 1대만 Ansible로 관리합니다.
+        agents:
+          hosts:
+            kube-node-1:
+              ansible_host: ${AGENT1_IP}
+              ansible_user: ubuntu
+              ansible_ssh_private_key_file: ~/.ssh/id_rsa
+            
+            # (삭제됨) kube-node-2는 이제 없습니다! 깔끔하게 지웠습니다.
+
+          vars:
+            # Bastion Host 설정 (Server를 통해서 Agent로 접속)
+            ansible_ssh_common_args: >-
+              -o ProxyCommand="ssh -W %h:%p -q ubuntu@${SERVER_IP} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
