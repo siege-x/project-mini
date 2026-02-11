@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+  namespace: default
+spec:
+  selector:
+    app: nginx
+  ports:
+    - protocol: TCP
+      port: 80        # 들어오는 포트
+      targetPort: 80  # 파드의 포트
+      nodePort: 30080 # [고정] 외부에서 30080으로 접속
+  type: NodePort
