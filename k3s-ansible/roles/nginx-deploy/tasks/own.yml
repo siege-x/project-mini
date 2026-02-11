@@ -1,0 +1,22 @@
+---
+# 1. Nginx 배포 (파드 생성)
+- name: Deploy Nginx Deployment
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'deployment.yaml.j2') }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+# 2. Service 배포 (외부 접속 길 뚫기)
+- name: Deploy Nginx Service
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'service.yaml.j2') }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+# 3. HPA 배포 (오토스케일링 감시자 붙이기)
+- name: Deploy Horizontal Pod Autoscaler (HPA)
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'hpa.yaml.j2') }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    
