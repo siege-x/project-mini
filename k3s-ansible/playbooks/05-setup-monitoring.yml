@@ -1,0 +1,32 @@
+---
+- name: Setup Prometheus & Grafana Monitoring
+  hosts: servers       # Helm 명령은 Master(Server)에서 실행합니다.
+  become: true         # 관리자 권한(sudo) 사용
+  gather_facts: true   # 서버 정보 수집
+  
+  pre_tasks:
+    # 1. agents 그룹에 있는 서버들의 정보를 미리 가져옵니다.
+    # 그래야 '첫 번째 놈 이름이 뭐야?'라고 물어볼 수 있습니다.
+    - name: Get facts from agents for node targeting
+      setup:
+      delegate_to: "{{ item }}"
+      delegate_facts: true
+      loop: "{{ groups['agents'] }}"
+      ignore_errors: true
+
+  roles:
+    - role: monitoring
+      vars:
+        # [핵심 로직]
+        # Terraform이 Fixed IP 하나만 줬으므로, agents[0]은 무조건 Fixed Agent입니다.
+        # 그 녀석의 실제 컴퓨터 이름(hostname)을 알아내서 변수로 넘깁니다.
+        target_node_name: "{{ hostvars[groups['agents'][0]]['ansible_hostname'] }}"
+
+  post_tasks:
+    # 설치 완료 후 접속 정보를 화면에 예쁘게 보여줍니다.
+    - name: Display Grafana Access Info
+      debug:
+        msg: 
+          - "🎉 Monitoring Stack Deployed on Agent Node: {{ target_node_name }}"
+          - "🔗 Access URL: http://{{ ansible_host }}:{{ grafana_node_port }}"
+          - "🔑 User: admin / Password: {{ grafana_admin_password }}"
