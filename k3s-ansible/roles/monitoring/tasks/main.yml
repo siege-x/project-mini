@@ -32,14 +32,14 @@
     kind: Namespace
     state: present
     # K3s의 인증서 파일 경로를 지정해줍니다.
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    kubeconfig: /etc/rancher/k3s/k3s.yml
 
 # 5. 설정 파일 만들기 (Jinja2 템플릿 사용)
 # 이유: IP 주소나 노드 이름은 그때그때 다르므로, 템플릿에 구멍을 뚫어놓고 값을 채워 넣습니다.
 - name: Render Prometheus Stack values file
   template:
-    src: monitor-values.yaml.j2
-    dest: /tmp/monitor-values.yaml
+    src: monitor-values.yml.j2
+    dest: /tmp/monitor-values.yml
   vars:
     # 플레이북에서 넘겨받은 '첫 번째 Agent 이름'을 변수로 넣습니다.
     # 만약 변수가 비어있다면 에러가 나지 않게 빈 값('')으로 처리합니다.
@@ -55,9 +55,9 @@
     name: monitoring
     chart_ref: prometheus-community/kube-prometheus-stack # 설치할 차트 이름
     release_namespace: "{{ monitoring_namespace }}"       # 설치할 위치
-    kubeconfig: /etc/rancher/k3s/k3s.yaml                 # 권한 파일
+    kubeconfig: /etc/rancher/k3s/k3s.yml                 # 권한 파일
     values_files:
-      - /tmp/monitor-values.yaml                          # 아까 만든 설정 파일 적용
+      - /tmp/monitor-values.yml                          # 아까 만든 설정 파일 적용
     update_repo_cache: yes                                # 저장소 정보 갱신
     wait: yes                                             # 파드가 다 뜰 때까지 대기
     wait_timeout: 10m                                     # 최대 10분 기다림 (t3.micro 느림 방지)
