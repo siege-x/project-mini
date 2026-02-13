@@ -40,7 +40,7 @@
     cluster_ip: "{{ ansible_host }}"
   become: yes
 
-# 6. 배포 (비동기 방식 - SSH 끊김 방지)
+# 6. 배포 (비동기 + 명령 입력 시간 연장)
 - name: Deploy kube-prometheus-stack
   kubernetes.core.helm:
     name: monitoring
@@ -60,8 +60,13 @@
         enabled: false
     update_repo_cache: yes
     
-    # [전략] 일단 명령만 던지고 연결을 끊습니다. (서버가 멈춰도 앤서블은 안 죽음)
-    wait: no 
+    # [핵심 1] 설치가 다 될 때까지 기다리지는 마! (빠른 퇴근)
+    wait: no
+    
+    # [핵심 2] 대신, 서버가 너무 느려서 명령 접수하는 데만 5분 넘게 걸릴 수 있으니
+    # 명령 접수 창구는 20분 동안 열어둬! (이게 없어서 실패했던 겁니다)
+    timeout: 20m  
+    
   become: yes
 
 # 7. 검증 (30초마다 찔러보기)
