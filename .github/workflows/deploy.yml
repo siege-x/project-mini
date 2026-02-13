@@ -1,0 +1,129 @@
+name: Provision & Configure K3s Cluster #test
+
+# 트리거 설정: master 브랜치에 푸시되거나, 수동으로 실행할 때 작동합니다.
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  # ==================================================================================
+  # 1. Terraform Job: 인프라(서버, 네트워크) 생성 및 IP 추출
+  # ==================================================================================
+  terraform:
+    name: Provision Infrastructure
+    runs-on: ubuntu-latest
+    
+    # 다음 Job(Ansible)으로 IP 정보를 넘겨주기 위한 output 설정입니다.
+    outputs:
+      server_ip: ${{ steps.set_outputs.outputs.server_ip }}
+      agent_fixed_ip: ${{ steps.set_outputs.outputs.agent_fixed_ip }}
+    
+    # AWS 인증 정보 (GitHub Secrets에 저장된 값 사용)
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+
+    steps:
+      # 1. 내 코드를 러너(가상컴퓨터)로 내려받습니다.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Terraform 초기화 (플러그인 다운로드 등)
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+
+      # 3. Terraform 적용 (실제 AWS 리소스 생성)
+      # -auto-approve: "진짜 만들래?" 묻지 않고 바로 생성합니다.
+      - name: Terraform Apply
+        working-directory: terraform
+        run: terraform apply -auto-approve
+
+      # 4. 생성된 IP 정보 추출 (핵심 단계!)
+      # Terraform Output 값을 읽어서 GitHub Actions 변수로 저장합니다.
+      - name: Set Outputs for Ansible
+        id: set_outputs
+        working-directory: terraform
+        run: |
+          # Master 노드(Bastion)의 공인 IP를 가져옵니다.
+          echo "server_ip=$(terraform output -raw server_public_ip)" >> $GITHUB_OUTPUT
+          
+          # [중요] 모니터링용 Fixed Agent의 사설 IP 하나만 가져옵니다.
+          # 이제 리스트(IP,IP,IP)가 아니라 단일 IP입니다.
+          echo "agent_fixed_ip=$(terraform output -raw agent_fixed_private_ip)" >> $GITHUB_OUTPUT
+
+  # ==================================================================================
+  # 2. Ansible Job: K3s 설정 및 모니터링 도구 설치
+  # ==================================================================================
+  ansible:
+    name: Configure K3s & Monitoring
+    runs-on: ubuntu-latest
+    needs: terraform # Terraform Job이 성공해야만 실행됩니다.
+    
+    env:
+      ANSIBLE_HOST_KEY_CHECKING: "False" # SSH 접속 시 "이 서버 맞니?" 묻는 과정 생략
+
+    steps:
+      # 1. 코드 내려받기
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. SSH 키 파일 생성 (Ansible이 서버에 접속하기 위해 필요)
+      - name: Setup SSH private key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.ANSIBLE_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      # 3. SSH 접속 설정 (Bastion Host 구성)
+      # Ansible은 사설 IP(Agent)에 직접 접속 못 하므로, Server(공인 IP)를 거쳐서 갑니다.
+      - name: Setup SSH config
+        run: |
+          cat <<EOF > ~/.ssh/config
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+            IdentityFile ~/.ssh/id_rsa
+            # 점프 호스트(Bastion) 설정을 위해 Agent Forwarding 활성화
+            ForwardAgent yes
+          EOF
+
+      # 4. [수정됨] Ansible 필수 라이브러리 설치
+      # K3s 모듈(kubernetes.core)을 사용하기 위해 파이썬 라이브러리가 꼭 필요합니다.
+      - name: Install Ansible Dependencies
+        run: |
+          # K8s 제어용 Ansible 컬렉션 설치
+          ansible-galaxy collection install kubernetes.core
+          # 파이썬 라이브러리 설치 (이게 없으면 'k8s module missing' 에러 남)
+          pip install kubernetes openshift pyyaml
+
+      # 5. [수정됨] 인벤토리(hosts.yml) 파일 생성
+      # Terraform에서 받은 Fixed IP를 템플릿에 채워 넣습니다.
+      - name: Generate Inventory from Template
+        working-directory: k3s-ansible
+        env:
+          # Terraform Job에서 넘겨준 IP를 환경변수로 받습니다.
+          SERVER_IP: ${{ needs.terraform.outputs.server_ip }}
+          AGENT_IP: ${{ needs.terraform.outputs.agent_fixed_ip }}
+        run: |
+          # 템플릿(hosts.yml.tmpl)은 보통 AGENT1_IP, AGENT2_IP를 기대합니다.
+          # 하지만 지금은 Fixed Agent 1개뿐이므로, AGENT1에만 IP를 할당합니다.
+          export AGENT1_IP="$AGENT_IP"
+          export AGENT2_IP="" # 두 번째 Agent는 없으므로 비워둡니다.
+          
+          # envsubst 명령어가 템플릿의 ${변수}를 실제 값으로 바꿔줍니다.
+          # 결과적으로 hosts.yml에는 Fixed Agent 하나만 등록됩니다.
+          envsubst < inventory/hosts.yml.tmpl > inventory/hosts.yml
+          
+          echo "--- 생성된 인벤토리 파일 확인 ---"
+          cat inventory/hosts.yml
+
+      # 6. Ansible Playbook 실행 (최종 배포)
+      # site.yml 안에는 우리가 추가한 '05-setup-monitoring.yml'도 포함되어 있습니다.
+      - name: Run Ansible Playbook
+        working-directory: k3s-ansible
+        run: |
+          # ubuntu 유저로 접속하여 실행합니다.
+          ansible-playbook -i inventory/hosts.yml site.yml -u ubuntu
