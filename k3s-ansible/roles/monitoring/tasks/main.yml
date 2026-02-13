@@ -79,7 +79,7 @@
   become: yes
 
 # ======================================================================
-# [2단계] 메인 앱 설치 - Shell 명령어로 직접 실행
+# [2단계] 메인 앱 설치 (검사 생략 옵션 추가) shell 명령어로 직접 실행
 # ======================================================================
 - name: Deploy kube-prometheus-stack (Via Raw Shell)
   shell: |
@@ -92,7 +92,8 @@
       --set alertmanager.enabled=false \
       --skip-crds \
       --wait=false \
-      --timeout 20m
+      --timeout 20m \
+      --disable-openapi-validation
   become: yes
 
 # ======================================================================
