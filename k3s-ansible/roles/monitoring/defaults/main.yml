@@ -1,0 +1,24 @@
+---
+# 1. 공통 설정
+monitoring_namespace: monitoring
+
+# 2. 프로메테우스(Prometheus) 관련 변수
+# 혹시 태스크 파일에서 포트나 버전을 변수로 썼을까봐 미리 정의합니다.
+prometheus_port: 9090
+prometheus_node_port: 30090  # 외부에서 접속할 NodePort (없으면 무시됨)
+prometheus_retention: "15d"  # 데이터 15일 보관
+prometheus_image_tag: "latest"
+
+# 3. 그라파나(Grafana) 관련 변수
+grafana_port: 3000
+grafana_node_port: 30000     # 외부에서 접속할 NodePort
+grafana_admin_password: "admin" # 초기 비밀번호 (보안상 나중에 바꾸세요)
+grafana_image_tag: "latest"
+
+# 4. 노드 익스포터(Node Exporter) 관련 변수
+node_exporter_port: 9100
+
+# 5. [중요] 서비스 타입 (LoadBalancer or NodePort)
+# 클라우드 환경이면 LoadBalancer, 아니면 NodePort를 쓸 텐데
+# 혹시 변수로 뺐을 경우를 대비해 기본값을 줍니다.
+service_type: LoadBalancer
