@@ -27,8 +27,6 @@
     api_version: v1
     kind: Namespace
     state: present
-    # [수정] 성호님 파일은 .yml이지만, K3s가 만든 원본 파일은 .yaml이라서 맞춰줘야 함!
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
   become: yes  # 관리자 권한 필수
 
 # 5. 설정 파일 만들기 (Jinja2 템플릿)
@@ -48,8 +46,6 @@
     name: monitoring
     chart_ref: prometheus-community/kube-prometheus-stack
     release_namespace: "{{ monitoring_namespace }}"
-    # [수정] 여기도 K3s 원본 파일 이름(.yaml)으로!
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
     values_files:
       - /tmp/monitor-values.yml
     update_repo_cache: yes
