@@ -30,6 +30,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # [추가됨] 1.5. Terraform 설치 (이게 있어야 terraform 명령어가 먹힙니다!)
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
       # 2. Terraform 초기화 (플러그인 다운로드 등)
       - name: Terraform Init
         working-directory: terraform
@@ -94,8 +98,12 @@ jobs:
       # K3s 모듈(kubernetes.core)을 사용하기 위해 파이썬 라이브러리가 꼭 필요합니다.
       - name: Install Ansible Dependencies
         run: |
+          # [추가됨] Ansible 본체 설치 (이게 제일 중요!)
+          pip install ansible
+          
           # K8s 제어용 Ansible 컬렉션 설치
           ansible-galaxy collection install kubernetes.core
+          
           # 파이썬 라이브러리 설치 (이게 없으면 'k8s module missing' 에러 남)
           pip install kubernetes openshift pyyaml
 
