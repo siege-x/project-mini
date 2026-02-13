@@ -12,7 +12,7 @@ jobs:
   # ==================================================================================
   terraform:
     name: Provision Infrastructure
-    runs-on: self-hosted 
+    runs-on: ubuntu-latest
     
     # 다음 Job(Ansible)으로 IP 정보를 넘겨주기 위한 output 설정입니다.
     outputs:
