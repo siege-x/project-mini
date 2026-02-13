@@ -100,6 +100,10 @@ jobs:
         run: |
           # [추가됨] Ansible 본체 설치 (이게 제일 중요!)
           pip install ansible
+
+          # [여기!!] 이 두 줄을 꼭 추가하세요!
+          # 커뮤니티 플러그인 모음을 강제로 설치해서 에러를 없앱니다.
+          ansible-galaxy collection install community.general
           
           # K8s 제어용 Ansible 컬렉션 설치
           ansible-galaxy collection install kubernetes.core
