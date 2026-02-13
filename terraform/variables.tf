@@ -20,7 +20,7 @@ variable "instance_type" {
 # SSH 접속용 키 페어 이름 (AWS 콘솔에 미리 만들어둔 키 이름)
 variable "key_name" { 
   description = "EC2 접속에 사용할 Key Pair 이름"
-  default     = "my-terraform-key" 
+  default     = "mykey" 
 }
 
 # K3s 클러스터 조인 토큰 (Server와 Agent가 서로를 알아보고 합류하기 위한 암호)
