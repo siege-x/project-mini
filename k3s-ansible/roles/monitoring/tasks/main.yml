@@ -40,17 +40,14 @@
     cluster_ip: "{{ ansible_host }}"
   become: yes
 
-# 6. 진짜 배포 (Helm Chart Install)
+# 6. 배포 (비동기 방식 - SSH 끊김 방지)
 - name: Deploy kube-prometheus-stack
   kubernetes.core.helm:
     name: monitoring
     chart_ref: prometheus-community/kube-prometheus-stack
     release_namespace: "{{ monitoring_namespace }}"
-    # kubeconfig 경로는 지운 상태 유지 (표준 경로 사용)
     values_files:
       - /tmp/monitor-values.yml
-    
-    # [핵심 추가] 프리티어(t3.micro)를 위한 다이어트 설정
     values:
       prometheusOperator:
         admissionWebhooks:
@@ -59,11 +56,37 @@
             enabled: false
         tls:
           enabled: false
-      # (선택) 램 부족 방지를 위해 알림 관리자(Alertmanager)도 끄는 걸 추천
       alertmanager:
         enabled: false
-
     update_repo_cache: yes
-    wait: yes
-    wait_timeout: 20m  # [수정] 10m -> 20m (넉넉하게!)
+    
+    # [전략] 일단 명령만 던지고 연결을 끊습니다. (서버가 멈춰도 앤서블은 안 죽음)
+    wait: no 
+  become: yes
+
+# 7. 검증 (30초마다 찔러보기)
+# 이게 있으면 wait: yes 와 똑같은 효과를 냅니다! "확인될 때까지 안 넘어감"
+- name: Wait for Prometheus to be Running
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ monitoring_namespace }}"
+    label_selectors:
+      - app.kubernetes.io/name=prometheus
+  register: pod_list
+  # 파드가 생기고(length > 0) + 상태가 Running 일 때까지 무한 대기
+  until: pod_list.resources | length > 0 and (pod_list.resources[0].status.phase == 'Running')
+  retries: 40  # 30초 * 40번 = 20분 동안 확인
+  delay: 30    # 30초마다 재접속해서 확인
+  become: yes
+
+- name: Wait for Grafana to be Running
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ monitoring_namespace }}"
+    label_selectors:
+      - app.kubernetes.io/name=grafana
+  register: grafana_pod
+  until: grafana_pod.resources | length > 0 and (grafana_pod.resources[0].status.phase == 'Running')
+  retries: 40
+  delay: 30
   become: yes
