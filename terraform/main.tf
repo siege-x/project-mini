@@ -131,6 +131,8 @@ resource "aws_launch_template" "k3s_agent_lt" {
 
 # 3-2. 오토스케일링 그룹 (실제 인스턴스 관리자)
 resource "aws_autoscaling_group" "k3s_agent_asg" {
+  count = var.asg_desired_capacity > 0 ? 1 : 0
+
   name                = "${var.project_name}-asg"
   vpc_zone_identifier = [aws_subnet.private.id] # Private Subnet에 생성
   
