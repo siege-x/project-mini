@@ -8,10 +8,29 @@
   become: yes
 
 # [추가 2] 쿠버네티스 통역기 라이브러리 설치 (이게 없어서 에러 남)
-- name: Install kubernetes python library
+- name: Install kubernetes python library and PyYAML
   pip:
-    name: kubernetes
+    name: 
+      - kubernetes
+      - PyYAML
   become: yes
+
+# [추가] K3s 설정 파일 권한 풀기 (누구나 읽을 수 있게)
+# 이걸 해주면 "권한 거부"나 "파일 못 찾음" 에러가 원천 봉쇄됩니다.
+- name: Ensure k3s.yaml is readable
+  file:
+    path: /etc/rancher/k3s/k3s.yaml
+    mode: '0644'
+  become: yes
+
+# [추가] K3s API 서버 대기 (안전장치)
+- name: Wait for K3s API server to be ready
+  wait_for:
+    host: localhost
+    port: 6443
+    delay: 5
+    timeout: 60
+    
 # 1. Nginx 배포 (파드 생성)
 - name: Deploy Nginx Deployment
   kubernetes.core.k8s:
