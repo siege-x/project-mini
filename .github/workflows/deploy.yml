@@ -68,6 +68,7 @@ jobs:
     
     env:
       ANSIBLE_HOST_KEY_CHECKING: "False" # SSH 접속 시 "이 서버 맞니?" 묻는 과정 생략
+      ANSIBLE_STDOUT_CALLBACK: yaml
 
     steps:
       # 1. 코드 내려받기
