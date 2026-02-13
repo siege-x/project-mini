@@ -1,3 +1,11 @@
+terraform {
+  backend "s3" {
+    bucket = "seongho-tfstate-20260214"     # <-- 버킷 이름
+    key    = "terraform.tfstate"
+    region = "ap-northeast-2"
+  }
+}
+
 # 최신 Ubuntu 이미지를 AWS에서 자동으로 찾아오는 코드
 data "aws_ami" "ubuntu" {
   most_recent = true
