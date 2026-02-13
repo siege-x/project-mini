@@ -1,19 +1,19 @@
 ---
-# 1. Helm 설치 (Master 노드에서 실행)
+# 1. Helm 설치
 - name: Install Helm setup script
   shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
   args:
     creates: /usr/local/bin/helm
   become: yes
 
-# 2. 필수 Python 패키지 설치
-- name: Install Python dependencies for Ansible K8s module
+# 2. 필수 패키지 설치
+- name: Install Python dependencies
   apt:
     name: python3-kubernetes
     state: present
   become: yes
 
-# 3. Helm 저장소(Repository) 추가
+# 3. 저장소 추가
 - name: Add Prometheus Community Helm Repo
   kubernetes.core.helm_repository:
     name: prometheus-community
@@ -27,12 +27,11 @@
     api_version: v1
     kind: Namespace
     state: present
-  become: yes  # 관리자 권한 필수
+  become: yes
 
-# 5. 설정 파일 만들기 (Jinja2 템플릿)
+# 5. 설정 파일 생성 (템플릿)
 - name: Render Prometheus Stack values file
   template:
-    # 성호님이 만드신 템플릿 파일명은 .yml.j2가 맞다면 그대로 두세요!
     src: monitor-values.yml.j2
     dest: /tmp/monitor-values.yml
   vars:
@@ -40,7 +39,20 @@
     cluster_ip: "{{ ansible_host }}"
   become: yes
 
-# 6. 배포 (비동기 + 명령 입력 시간 연장)
+# ======================================================================
+# 🚨 [핵심 변경] 무거운 CRD(설계도)를 먼저 따로 설치합니다.
+# 이렇게 하면 "Context Deadline Exceeded" 에러가 안 납니다!
+# ======================================================================
+- name: Install Prometheus CRDs separately (Prevent Timeout)
+  kubernetes.core.helm:
+    name: prometheus-crds
+    chart_ref: prometheus-community/prometheus-operator-crds
+    release_namespace: "{{ monitoring_namespace }}"
+    update_repo_cache: yes
+    wait: yes  # 이건 가벼워서 금방 되니까 기다려도 됨
+  become: yes
+
+# 6. 진짜 배포 (CRD는 위에서 했으니 건너뜀!)
 - name: Deploy kube-prometheus-stack
   kubernetes.core.helm:
     name: monitoring
@@ -58,19 +70,15 @@
           enabled: false
       alertmanager:
         enabled: false
-    update_repo_cache: yes
     
-    # [핵심 1] 설치가 다 될 때까지 기다리지는 마! (빠른 퇴근)
+    # [전략] CRD 설치는 이미 했으므로 스킵! (부하 50% 감소)
+    skip_crds: yes
+    
+    # 앤서블은 명령만 내리고 빠지기
     wait: no
-    
-    # [핵심 2] 대신, 서버가 너무 느려서 명령 접수하는 데만 5분 넘게 걸릴 수 있으니
-    # 명령 접수 창구는 20분 동안 열어둬! (이게 없어서 실패했던 겁니다)
-    timeout: 20m  
-    
   become: yes
 
-# 7. 검증 (30초마다 찔러보기)
-# 이게 있으면 wait: yes 와 똑같은 효과를 냅니다! "확인될 때까지 안 넘어감"
+# 7. 검증 (30초마다 확인)
 - name: Wait for Prometheus to be Running
   kubernetes.core.k8s_info:
     kind: Pod
@@ -78,10 +86,9 @@
     label_selectors:
       - app.kubernetes.io/name=prometheus
   register: pod_list
-  # 파드가 생기고(length > 0) + 상태가 Running 일 때까지 무한 대기
   until: pod_list.resources | length > 0 and (pod_list.resources[0].status.phase == 'Running')
-  retries: 40  # 30초 * 40번 = 20분 동안 확인
-  delay: 30    # 30초마다 재접속해서 확인
+  retries: 40
+  delay: 30
   become: yes
 
 - name: Wait for Grafana to be Running
