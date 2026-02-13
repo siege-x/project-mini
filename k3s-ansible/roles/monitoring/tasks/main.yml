@@ -40,46 +40,56 @@
   become: yes
 
 # ======================================================================
-# [1단계] CRD(설계도) 설치 - Shell 명령어로 직접 실행
+# [1단계] CRD(설계도) 설치 - "성공할 때까지 재시도!"
 # ======================================================================
-- name: Update Helm Repo (Safety Check)
+
+# 🛑 [추가된 부분] 레포지토리 정보 갱신 (확실하게 하기 위해)
+# 인터넷이 잠깐 끊겨도 기존 정보로라도 진행하도록 에러 무시 설정 추가
+- name: Update Helm Repo Forcefully
   shell: /usr/local/bin/helm repo update
   become: yes
+  ignore_errors: yes
 
-- name: Install Prometheus CRDs (Via Raw Shell)
+- name: Install Prometheus CRDs (Retry Loop)
   shell: |
     /usr/local/bin/helm upgrade --install prometheus-crds prometheus-community/prometheus-operator-crds \
       --namespace {{ monitoring_namespace }} \
       --create-namespace \
       --wait=false \
-      --timeout 10m
+      --timeout 10m \
+      --disable-openapi-validation
   become: yes
-  # 멱등성 보장: 이미 설치되어 있어도 에러 아님
-  ignore_errors: yes 
+  register: crd_install_result
+  # 🛑 핵심: 성공(rc=0)할 때까지 최대 5번, 1분 간격으로 재시도합니다.
+  # 타임아웃 나서 일부만 깔려도, 다시 실행하면 나머지 설치합니다.
+  until: crd_install_result.rc == 0
+  retries: 5
+  delay: 60
 
 # ======================================================================
-# [휴식] 2분 대기 (새 인스턴스 기준 충분)
+# [휴식] 재시도하느라 고생했을 테니 2분 쉽니다.
 # ======================================================================
 - name: Pause for CRD registration
   pause:
     minutes: 2
 
 # ======================================================================
-# [검증] CRD 등록 확인 (이게 통과되어야 다음으로 넘어감)
+# [검증] "프로메테우스" 설계도가 진짜 있는지 확인 (타겟 변경!)
+# 아까는 ServiceMonitor만 확인해서 통과된 겁니다. 이번엔 Prometheus를 봅니다.
 # ======================================================================
-- name: Verify CRD is ready
+- name: Verify 'Prometheus' CRD is ready
   kubernetes.core.k8s_info:
     api_version: apiextensions.k8s.io/v1
     kind: CustomResourceDefinition
-    name: servicemonitors.monitoring.coreos.com
+    name: prometheuses.monitoring.coreos.com
   register: crd_check
   until: crd_check.resources | length > 0
-  retries: 30 # 10초 * 30번 = 5분 더 기다림 (안전장치 강화)
+  retries: 20
   delay: 10
   become: yes
 
 # ======================================================================
-# [2단계] 메인 앱 설치 (검사 생략 옵션 추가) shell 명령어로 직접 실행
+# [2단계] 메인 앱 설치 (검사 생략)
 # ======================================================================
 - name: Deploy kube-prometheus-stack (Via Raw Shell)
   shell: |
@@ -97,7 +107,7 @@
   become: yes
 
 # ======================================================================
-# [3단계] 최종 검증 (Pod Running 확인)
+# [3단계] 최종 검증
 # ======================================================================
 - name: Wait for Prometheus Pod
   kubernetes.core.k8s_info:
@@ -107,7 +117,7 @@
       - app.kubernetes.io/name=prometheus
   register: pod_list
   until: pod_list.resources | length > 0 and (pod_list.resources[0].status.phase == 'Running')
-  retries: 40 # 20분 대기
+  retries: 40
   delay: 30
   become: yes
 
