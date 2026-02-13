@@ -1,5 +1,5 @@
 # AWS 리전 설정 (기본값: 서울)
-variable "region" { 
+variable "aws_region" { 
   description = "인프라가 배포될 AWS 리전"
   default     = "ap-northeast-2" 
 }
