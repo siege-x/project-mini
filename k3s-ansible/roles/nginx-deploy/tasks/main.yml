@@ -1,10 +1,24 @@
 ---
+# [추가 1] 파이썬 패키지 관리자(pip) 설치
+- name: Install python3-pip
+  apt:
+    name: python3-pip
+    state: present
+    update_cache: yes
+  become: yes
+
+# [추가 2] 쿠버네티스 통역기 라이브러리 설치 (이게 없어서 에러 남)
+- name: Install kubernetes python library
+  pip:
+    name: kubernetes
+  become: yes
 # 1. Nginx 배포 (파드 생성)
 - name: Deploy Nginx Deployment
   kubernetes.core.k8s:
     state: present
     definition: "{{ lookup('template', 'deployment.yml.j2') }}"
     kubeconfig: /etc/rancher/k3s/k3s.yml
+  become: yes
 
 # 2. Service 배포 (외부 접속 길 뚫기)
 - name: Deploy Nginx Service
@@ -12,6 +26,7 @@
     state: present
     definition: "{{ lookup('template', 'service.yml.j2') }}"
     kubeconfig: /etc/rancher/k3s/k3s.yml
+  become: yes
 
 # 3. HPA 배포 (오토스케일링 감시자 붙이기)
 - name: Deploy Horizontal Pod Autoscaler (HPA)
@@ -19,3 +34,4 @@
     state: present
     definition: "{{ lookup('template', 'hpa.yml.j2') }}"
     kubeconfig: /etc/rancher/k3s/k3s.yml
+  become: yes
