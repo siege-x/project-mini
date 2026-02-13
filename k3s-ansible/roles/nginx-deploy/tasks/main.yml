@@ -1,5 +1,5 @@
 ---
-# [추가 1] 파이썬 패키지 관리자(pip) 설치
+# 1. 필수 도구 및 라이브러리 설치
 - name: Install python3-pip
   apt:
     name: python3-pip
@@ -7,50 +7,55 @@
     update_cache: yes
   become: yes
 
-# [추가 2] 쿠버네티스 통역기 라이브러리 설치 (이게 없어서 에러 남)
 - name: Install kubernetes python library and PyYAML
   pip:
-    name: 
+    name:
       - kubernetes
       - PyYAML
+    state: latest
   become: yes
 
-# [추가] K3s 설정 파일 권한 풀기 (누구나 읽을 수 있게)
-# 이걸 해주면 "권한 거부"나 "파일 못 찾음" 에러가 원천 봉쇄됩니다.
-- name: Ensure k3s.yaml is readable
+# 2. 표준 설정 폴더 및 파일 구성 (이게 핵심!)
+- name: Create .kube directory
   file:
-    path: /etc/rancher/k3s/k3s.yaml
-    mode: '0644'
+    path: /root/.kube
+    state: directory
+    mode: '0755'
   become: yes
 
-# [추가] K3s API 서버 대기 (안전장치)
+- name: Copy k3s config to default kubeconfig location
+  copy:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: /root/.kube/config
+    remote_src: yes
+    mode: '0600'
+  become: yes
+
+# 3. K3s API 대기
 - name: Wait for K3s API server to be ready
   wait_for:
     host: localhost
     port: 6443
     delay: 5
     timeout: 60
-    
-# 1. Nginx 배포 (파드 생성)
+
+# 4. Nginx 배포 (kubeconfig 설정을 아예 삭제했습니다. 자동 인식됨)
 - name: Deploy Nginx Deployment
   kubernetes.core.k8s:
     state: present
     definition: "{{ lookup('template', 'deployment.yml.j2') }}"
-    kubeconfig: /etc/rancher/k3s/k3s.yml
   become: yes
 
-# 2. Service 배포 (외부 접속 길 뚫기)
+# 5. Service 배포
 - name: Deploy Nginx Service
   kubernetes.core.k8s:
     state: present
     definition: "{{ lookup('template', 'service.yml.j2') }}"
-    kubeconfig: /etc/rancher/k3s/k3s.yml
   become: yes
 
-# 3. HPA 배포 (오토스케일링 감시자 붙이기)
-- name: Deploy Horizontal Pod Autoscaler (HPA)
+# 6. HPA 배포
+- name: Deploy HPA
   kubernetes.core.k8s:
     state: present
     definition: "{{ lookup('template', 'hpa.yml.j2') }}"
-    kubeconfig: /etc/rancher/k3s/k3s.yml
   become: yes
