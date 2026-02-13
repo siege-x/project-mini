@@ -12,7 +12,7 @@ jobs:
   # ==================================================================================
   terraform:
     name: Provision Infrastructure
-    runs-on: ubuntu-latest # GitHub가 제공하는 최신 우분투 러너 사용
+    runs-on: self-hosted 
     
     # 다음 Job(Ansible)으로 IP 정보를 넘겨주기 위한 output 설정입니다.
     outputs:
