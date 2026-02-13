@@ -1,26 +1,26 @@
 ---
-# 1. Helm 설치
+# 1. Helm 설치 스크립트 실행
 - name: Install Helm setup script
   shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
   args:
     creates: /usr/local/bin/helm
   become: yes
 
-# 2. 필수 패키지
+# 2. 필수 Python 패키지 (k8s 모듈용)
 - name: Install Python dependencies
   apt:
     name: python3-kubernetes
     state: present
   become: yes
 
-# 3. 저장소 추가
+# 3. Helm Repo 추가
 - name: Add Prometheus Community Helm Repo
   kubernetes.core.helm_repository:
     name: prometheus-community
     repo_url: "https://prometheus-community.github.io/helm-charts"
   become: yes
 
-# 4. 네임스페이스
+# 4. 모니터링 네임스페이스 생성
 - name: Create monitoring namespace
   kubernetes.core.k8s:
     name: "{{ monitoring_namespace }}"
@@ -29,7 +29,7 @@
     state: present
   become: yes
 
-# 5. 설정 파일
+# 5. 설정 파일 생성 (Jinja2 템플릿)
 - name: Render Prometheus Stack values file
   template:
     src: monitor-values.yml.j2
@@ -40,70 +40,65 @@
   become: yes
 
 # ======================================================================
-# 1단계: CRD(설계도) 설치 - "일단 던져(wait: no)"
+# [1단계] CRD(설계도) 설치 - Shell 명령어로 직접 실행
 # ======================================================================
-- name: Install Prometheus CRDs (Async)
-  kubernetes.core.helm:
-    name: prometheus-crds
-    chart_ref: prometheus-community/prometheus-operator-crds
-    release_namespace: "{{ monitoring_namespace }}"
-    update_repo_cache: yes
-    wait: no
-    timeout: 10m
+- name: Update Helm Repo (Safety Check)
+  shell: /usr/local/bin/helm repo update
   become: yes
 
+- name: Install Prometheus CRDs (Via Raw Shell)
+  shell: |
+    /usr/local/bin/helm upgrade --install prometheus-crds prometheus-community/prometheus-operator-crds \
+      --namespace {{ monitoring_namespace }} \
+      --create-namespace \
+      --wait=false \
+      --timeout 10m
+  become: yes
+  # 멱등성 보장: 이미 설치되어 있어도 에러 아님
+  ignore_errors: yes 
+
 # ======================================================================
-# 🛑 [최적화] 2분 휴식 (새 인스턴스라 2분이면 충분!)
+# [휴식] 2분 대기 (새 인스턴스 기준 충분)
 # ======================================================================
-- name: Give t3.micro a short break (2 mins)
+- name: Pause for CRD registration
   pause:
     minutes: 2
 
 # ======================================================================
-# 🛑 [안전장치] CRD 등록 확인
-# 2분을 쉬었는데 혹시라도 디스크가 느려서 등록 안 됐을까 봐 확인만 합니다.
+# [검증] CRD 등록 확인 (이게 통과되어야 다음으로 넘어감)
 # ======================================================================
-- name: Verify CRD is actually ready
+- name: Verify CRD is ready
   kubernetes.core.k8s_info:
     api_version: apiextensions.k8s.io/v1
     kind: CustomResourceDefinition
     name: servicemonitors.monitoring.coreos.com
   register: crd_check
   until: crd_check.resources | length > 0
-  retries: 20  # 10초 * 20번 = 최대 3분 더 기다려줌 (안전빵)
+  retries: 30 # 10초 * 30번 = 5분 더 기다림 (안전장치 강화)
   delay: 10
   become: yes
 
 # ======================================================================
-# 2단계: 메인 앱 설치
+# [2단계] 메인 앱 설치 - Shell 명령어로 직접 실행
 # ======================================================================
-- name: Deploy kube-prometheus-stack (Async)
-  kubernetes.core.helm:
-    name: monitoring
-    chart_ref: prometheus-community/kube-prometheus-stack
-    release_namespace: "{{ monitoring_namespace }}"
-    values_files:
-      - /tmp/monitor-values.yml
-    values:
-      prometheusOperator:
-        admissionWebhooks:
-          enabled: false
-          patch:
-            enabled: false
-        tls:
-          enabled: false
-      alertmanager:
-        enabled: false
-    
-    skip_crds: yes  # 위에서 확인까지 끝냈으니 안심하고 스킵
-    wait: no
-    timeout: 20m
+- name: Deploy kube-prometheus-stack (Via Raw Shell)
+  shell: |
+    /usr/local/bin/helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+      --namespace {{ monitoring_namespace }} \
+      --values /tmp/monitor-values.yml \
+      --set prometheusOperator.admissionWebhooks.enabled=false \
+      --set prometheusOperator.admissionWebhooks.patch.enabled=false \
+      --set prometheusOperator.tls.enabled=false \
+      --set alertmanager.enabled=false \
+      --skip-crds \
+      --wait=false \
+      --timeout 20m
   become: yes
 
 # ======================================================================
-# 3단계: 최종 검증
+# [3단계] 최종 검증 (Pod Running 확인)
 # ======================================================================
-- name: Wait for Prometheus to be Running
+- name: Wait for Prometheus Pod
   kubernetes.core.k8s_info:
     kind: Pod
     namespace: "{{ monitoring_namespace }}"
@@ -111,11 +106,11 @@
       - app.kubernetes.io/name=prometheus
   register: pod_list
   until: pod_list.resources | length > 0 and (pod_list.resources[0].status.phase == 'Running')
-  retries: 40
+  retries: 40 # 20분 대기
   delay: 30
   become: yes
 
-- name: Wait for Grafana to be Running
+- name: Wait for Grafana Pod
   kubernetes.core.k8s_info:
     kind: Pod
     namespace: "{{ monitoring_namespace }}"
