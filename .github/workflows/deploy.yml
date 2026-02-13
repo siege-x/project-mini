@@ -1,4 +1,4 @@
-name: Provision & Configure K3s Cluster #test
+name: Provision & Configure K3s Cluster
 
 # 트리거 설정: master 브랜치에 푸시되거나, 수동으로 실행할 때 작동합니다.
 on:
