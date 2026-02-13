@@ -32,7 +32,7 @@ variable "k3s_token" {
 # [신규] ASG 최소 인스턴스 개수 (서버가 아무리 줄어도 이 밑으로는 안 내려감)
 variable "asg_min_size" {
   description = "Auto Scaling Group 최소 크기"
-  default     = 1
+  default     = 0
 }
 
 # [신규] ASG 최대 인스턴스 개수 (트래픽이 폭주해도 이 이상은 안 늘어남 - 요금 폭탄 방지)
@@ -44,5 +44,5 @@ variable "asg_max_size" {
 # [신규] ASG 초기 희망 개수 (처음 배포할 때 생성될 워커 노드 개수)
 variable "asg_desired_capacity" {
   description = "Auto Scaling Group 희망 크기"
-  default     = 1
+  default     = 0
 }
