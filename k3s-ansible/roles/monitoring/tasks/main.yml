@@ -6,7 +6,7 @@
     creates: /usr/local/bin/helm
   become: yes
 
-# 2. 필수 패키지 설치
+# 2. 필수 패키지
 - name: Install Python dependencies
   apt:
     name: python3-kubernetes
@@ -20,7 +20,7 @@
     repo_url: "https://prometheus-community.github.io/helm-charts"
   become: yes
 
-# 4. 네임스페이스 생성
+# 4. 네임스페이스
 - name: Create monitoring namespace
   kubernetes.core.k8s:
     name: "{{ monitoring_namespace }}"
@@ -29,7 +29,7 @@
     state: present
   become: yes
 
-# 5. 설정 파일 생성 (템플릿)
+# 5. 설정 파일
 - name: Render Prometheus Stack values file
   template:
     src: monitor-values.yml.j2
@@ -40,20 +40,44 @@
   become: yes
 
 # ======================================================================
-# 🚨 [핵심 변경] 무거운 CRD(설계도)를 먼저 따로 설치합니다.
-# 이렇게 하면 "Context Deadline Exceeded" 에러가 안 납니다!
+# 1단계: CRD(설계도) 설치 - "일단 던져(wait: no)"
 # ======================================================================
-- name: Install Prometheus CRDs separately (Prevent Timeout)
+- name: Install Prometheus CRDs (Async)
   kubernetes.core.helm:
     name: prometheus-crds
     chart_ref: prometheus-community/prometheus-operator-crds
     release_namespace: "{{ monitoring_namespace }}"
     update_repo_cache: yes
-    wait: yes  # 이건 가벼워서 금방 되니까 기다려도 됨
+    wait: no
+    timeout: 10m
   become: yes
 
-# 6. 진짜 배포 (CRD는 위에서 했으니 건너뜀!)
-- name: Deploy kube-prometheus-stack
+# ======================================================================
+# 🛑 [최적화] 2분 휴식 (새 인스턴스라 2분이면 충분!)
+# ======================================================================
+- name: Give t3.micro a short break (2 mins)
+  pause:
+    minutes: 2
+
+# ======================================================================
+# 🛑 [안전장치] CRD 등록 확인
+# 2분을 쉬었는데 혹시라도 디스크가 느려서 등록 안 됐을까 봐 확인만 합니다.
+# ======================================================================
+- name: Verify CRD is actually ready
+  kubernetes.core.k8s_info:
+    api_version: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    name: servicemonitors.monitoring.coreos.com
+  register: crd_check
+  until: crd_check.resources | length > 0
+  retries: 20  # 10초 * 20번 = 최대 3분 더 기다려줌 (안전빵)
+  delay: 10
+  become: yes
+
+# ======================================================================
+# 2단계: 메인 앱 설치
+# ======================================================================
+- name: Deploy kube-prometheus-stack (Async)
   kubernetes.core.helm:
     name: monitoring
     chart_ref: prometheus-community/kube-prometheus-stack
@@ -71,14 +95,14 @@
       alertmanager:
         enabled: false
     
-    # [전략] CRD 설치는 이미 했으므로 스킵! (부하 50% 감소)
-    skip_crds: yes
-    
-    # 앤서블은 명령만 내리고 빠지기
+    skip_crds: yes  # 위에서 확인까지 끝냈으니 안심하고 스킵
     wait: no
+    timeout: 20m
   become: yes
 
-# 7. 검증 (30초마다 확인)
+# ======================================================================
+# 3단계: 최종 검증
+# ======================================================================
 - name: Wait for Prometheus to be Running
   kubernetes.core.k8s_info:
     kind: Pod
