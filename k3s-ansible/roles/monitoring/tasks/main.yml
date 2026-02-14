@@ -62,9 +62,9 @@
   shell: /usr/local/bin/helm template prom-crds prometheus-community/prometheus-operator-crds > /tmp/prom-crds.yaml
   become: yes
 
-# [수정포인트 3] 추출된 단일 YAML 파일을 Server-Side Apply로 밀어넣기 (--force-conflicts 추가)
-- name: Install CRDs via Kubectl directly (Server-Side Apply)
-  shell: kubectl apply --server-side --force-conflicts -f /tmp/prom-crds.yaml
+# 🛑 [수정포인트 3] 메모리 폭주(OOM)를 막기 위해 무거운 Server-Side Apply 대신 가벼운 create/replace 방식 사용
+- name: Install CRDs via Kubectl directly (Lightweight)
+  shell: kubectl replace -f /tmp/prom-crds.yaml --force || kubectl create -f /tmp/prom-crds.yaml
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   become: yes
