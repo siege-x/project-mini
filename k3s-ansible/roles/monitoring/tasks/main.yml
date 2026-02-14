@@ -58,12 +58,17 @@
   become: yes
 
 # 🛑 [명시적 경로 선언] 다운로드 파일과 압축 해제 폴더를 모두 안전한 임시 폴더(/tmp)로 지정
-- name: Download and Untar kube-prometheus-stack
-  shell: >
-    /usr/local/bin/helm pull prometheus-community/kube-prometheus-stack 
-    --untar 
-    --untardir /tmp 
-    --destination /tmp
+# 헬름의 모호한 --untar 옵션을 버리고, 경로를 100% 통제하는 표준 방식으로 변경합니다.
+- name: Download and Extract kube-prometheus-stack
+  shell: |
+    # 1. 100% 깨끗한 초기 상태의 /tmp로 이동
+    cd /tmp
+    
+    # 2. 현재 폴더(/tmp)에 압축 파일 다운로드
+    /usr/local/bin/helm pull prometheus-community/kube-prometheus-stack
+    
+    # 3. 다운받은 파일을 현재 폴더에 정확히 압축 해제 -> /tmp/kube-prometheus-stack 폴더 100% 생성 보장
+    tar -xzf kube-prometheus-stack-*.tgz
   become: yes
 
 - name: Install CRDs via Kubectl directly (Ultra Fast Bypass)
