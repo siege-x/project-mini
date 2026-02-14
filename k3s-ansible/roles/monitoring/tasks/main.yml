@@ -6,7 +6,7 @@
   ignore_errors: yes
 
 # ======================================================================
-# 🏗️ 1. 인프라 기초 공사 (누락 완전 복구됨)
+# 🏗️ 1. 인프라 기초 공사
 # ======================================================================
 - name: Install Helm setup script
   shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
@@ -14,10 +14,16 @@
     creates: /usr/local/bin/helm
   become: yes
 
-- name: Install Python dependencies
+# [수정포인트 1] apt 대신 pip로 쿠버네티스 파이썬 라이브러리 설치 (충돌 방지)
+- name: Install python3-pip
   apt:
-    name: python3-kubernetes
+    name: python3-pip
     state: present
+  become: yes
+
+- name: Install kubernetes python library
+  pip:
+    name: kubernetes
   become: yes
 
 - name: Add Prometheus Community Helm Repo
@@ -45,28 +51,20 @@
   become: yes
 
 # ======================================================================
-# 🚀 2. [아키텍처 최적화] t3.micro 생존을 위한 CRD 사전 분리 설치
+# 🚀 2. [아키텍처 최적화] t3.micro 생존을 위한 CRD 1개 파일로 병합 및 설치
 # ======================================================================
 - name: Update Helm Repo
   shell: /usr/local/bin/helm repo update
   become: yes
 
-- name: Download and Extract kube-prometheus-stack
-  shell: |
-    # 1. 이전 실패 잔재를 지우고 깨끗한 /tmp에서 작업
-    rm -rf /tmp/kube-prometheus-stack*
-    cd /tmp
-    
-    # 2. 공식 차트 다운로드
-    /usr/local/bin/helm pull prometheus-community/kube-prometheus-stack
-    
-    # 3. 압축 해제 (정확히 /tmp/kube-prometheus-stack 폴더가 100% 생성됨)
-    tar -xzf kube-prometheus-stack-*.tgz
+# 🛑 [수정포인트 2] 폴더 압축 해제 로직 완전 삭제! 공식 CRD 전용 차트를 1개의 yaml 파일로 렌더링
+- name: Render CRDs from standalone chart into a single file
+  shell: /usr/local/bin/helm template prom-crds prometheus-community/prometheus-operator-crds > /tmp/prom-crds.yaml
   become: yes
 
-# K3s API 서버 과부하를 막기 위해 추출된 CRD 폴더를 Server-Side Apply로 단독 밀어넣기
+# [수정포인트 3] 추출된 단일 YAML 파일을 Server-Side Apply로 밀어넣기 (--force-conflicts 추가)
 - name: Install CRDs via Kubectl directly (Server-Side Apply)
-  shell: kubectl apply --server-side -f /tmp/kube-prometheus-stack/crds/
+  shell: kubectl apply --server-side --force-conflicts -f /tmp/prom-crds.yaml
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   become: yes
