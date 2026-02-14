@@ -57,11 +57,13 @@
   shell: rm -rf /tmp/kube-prometheus-stack /tmp/kube-prometheus-stack*.tgz
   become: yes
 
-# 이제 무조건 깨끗한 환경에서 확실하게 다운로드 및 압축 해제가 진행됩니다.
-- name: Download and Untar kube-prometheus-stack (Fast Download)
-  shell: /usr/local/bin/helm pull prometheus-community/kube-prometheus-stack --untar
-  args:
-    chdir: /tmp
+# 🛑 [명시적 경로 선언] 다운로드 파일과 압축 해제 폴더를 모두 안전한 임시 폴더(/tmp)로 지정
+- name: Download and Untar kube-prometheus-stack
+  shell: >
+    /usr/local/bin/helm pull prometheus-community/kube-prometheus-stack 
+    --untar 
+    --untardir /tmp 
+    --destination /tmp
   become: yes
 
 - name: Install CRDs via Kubectl directly (Ultra Fast Bypass)
