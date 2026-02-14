@@ -1,60 +1,37 @@
----
-# [사전 청소 1] 헬름 프로세스 찌꺼기 제거
-- name: Kill stuck helm processes
-  shell: pkill -9 helm
-  become: yes
-  ignore_errors: yes
-
-# 1. Helm & Python 패키지 설치
-- name: Install Helm setup script
-  shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-  args:
-    creates: /usr/local/bin/helm
-  become: yes
-
-- name: Install Python dependencies
-  apt:
-    name: python3-kubernetes
-    state: present
-  become: yes
-
-# 2. Repo 추가 및 네임스페이스 생성
-- name: Add Prometheus Community Helm Repo
-  kubernetes.core.helm_repository:
-    name: prometheus-community
-    repo_url: "https://prometheus-community.github.io/helm-charts"
-  become: yes
-
-- name: Create monitoring namespace
-  kubernetes.core.k8s:
-    name: "{{ monitoring_namespace }}"
-    api_version: v1
-    kind: Namespace
-    state: present
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
-  become: yes
-
-- name: Render Prometheus Stack values file
-  template:
-    src: monitor-values.yml.j2
-    dest: /tmp/monitor-values.yml
-  vars:
-    target_node: "{{ target_node_name | default('') }}"
-    cluster_ip: "{{ ansible_host }}"
-  become: yes
-
 # ======================================================================
-# 🚀 [메인 앱 설치] 순정 Helm 아키텍처 복구 (수동 꼼수 전면 폐기)
+# 🚀 [아키텍처 롤백] t3.micro 생존을 위한 CRD 분리 및 이중 압축 해제
 # ======================================================================
 - name: Update Helm Repo
   shell: /usr/local/bin/helm repo update
   become: yes
 
-# 🛑 [핵심 변경 사항] 
-# 불안정한 수동 다운로드, 압축 해제, kubectl apply 꼼수를 모두 제거했습니다.
-# --skip-crds 옵션을 삭제하여, Helm이 메인 앱과 CRD를 한 번에 안전하게 설치하도록 아키텍처를 정상화했습니다.
-# t3.micro의 리소스 한계를 고려해 타임아웃을 10분(10m)으로 넉넉하게 늘렸습니다.
-- name: Deploy kube-prometheus-stack (Main App & CRDs)
+- name: Download and Extract kube-prometheus-stack and CRDs
+  shell: |
+    # 1. 찌꺼기 초기화 및 메인 차트 다운로드 (압축 해제 포함)
+    rm -rf /tmp/kube-prometheus-stack* /tmp/prometheus-operator-crds*
+    cd /tmp
+    /usr/local/bin/helm pull prometheus-community/kube-prometheus-stack --untar
+    
+    # 2. [핵심 방어 로직] 숨겨진 CRD 서브차트 이중 압축 해제
+    # charts 폴더 안에 숨겨진 prometheus-operator-crds 압축을 한 번 더 풀어냅니다.
+    tar -xzf /tmp/kube-prometheus-stack/charts/prometheus-operator-crds-*.tgz -C /tmp
+  become: yes
+
+# 3. 추출된 정확한 경로(/tmp/prometheus-operator-crds/crds/)에서 서버사이드 어플라이 실행
+- name: Install CRDs via Kubectl directly (Server-Side Apply)
+  shell: kubectl apply --server-side -f /tmp/prometheus-operator-crds/crds/
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  become: yes
+
+- name: Short pause for API server to digest CRDs
+  pause:
+    seconds: 15
+
+# ======================================================================
+# 🚀 [메인 앱 설치] CRD 스킵 및 경량화 배포 (과부하 방지)
+# ======================================================================
+- name: Deploy kube-prometheus-stack (Main App)
   shell: |
     /usr/local/bin/helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
       --namespace {{ monitoring_namespace }} \
@@ -63,6 +40,7 @@
       --set prometheusOperator.admissionWebhooks.patch.enabled=false \
       --set prometheusOperator.tls.enabled=false \
       --set alertmanager.enabled=false \
+      --skip-crds \
       --wait=false \
       --timeout 10m \
       --disable-openapi-validation
@@ -71,7 +49,7 @@
   become: yes
 
 # ======================================================================
-# 🏁 파드 기동 확인 (영상 마무리를 위한 깔끔한 대기)
+# 🏁 파드 기동 확인
 # ======================================================================
 - name: Wait for Prometheus Pod to be Running
   kubernetes.core.k8s_info:
