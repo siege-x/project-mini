@@ -1,4 +1,26 @@
 ---
+- name: Prepare nodes
+  hosts: all
+  become: yes
+  # 🛑 [핵심] 접속이 확정되기 전에 앤서블이 미리 정보를 캐내려다 뻗는 것을 방지합니다.
+  gather_facts: no 
+
+  pre_tasks:
+    # 🚀 [스마트 폴링] SSH 문이 열릴 때까지 여기서 대기합니다.
+    # 깃 액션 로그에는 이 단계가 성공할 때까지 로딩 표시가 뜰 겁니다.
+    - name: Wait for SSH to become available dynamically
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        sleep: 5
+        timeout: 300
+
+    # 접속이 확인된 "직후"에 서버 정보를 수집합니다.
+    - name: Gather facts after connection is ready
+      ansible.builtin.setup:
+
+  roles:
+    - k3s-common
+    
 - name: Prepare all nodes for K3s
   hosts: k3s_cluster # 인벤토리에서 변경한 그룹명을 사용합니다.
   become: true
