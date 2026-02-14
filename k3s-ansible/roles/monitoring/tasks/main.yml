@@ -1,5 +1,5 @@
 ---
-# [사전 청소] 
+# [사전 청소]
 - name: Kill stuck helm processes
   shell: pkill -9 helm
   become: yes
@@ -31,6 +31,7 @@
     api_version: v1
     kind: Namespace
     state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
   become: yes
 
 - name: Render Prometheus Stack values file
@@ -44,20 +45,26 @@
 
 # ======================================================================
 # 🚀 [발표용 핵심 최적화] CRD 분리 및 초고속 직접 설치
-# 헬름의 무거운 로직을 피해, 차트 압축을 풀고 kubectl로 10초 만에 밀어넣습니다.
 # ======================================================================
 - name: Update Helm Repo
   shell: /usr/local/bin/helm repo update
   become: yes
 
 - name: Download and Untar kube-prometheus-stack (Fast Download)
-  shell: /usr/local/bin/helm pull prometheus-community/kube-prometheus-stack --untar --destination /tmp
+  shell: /usr/local/bin/helm pull prometheus-community/kube-prometheus-stack --untar
+  args:
+    chdir: /tmp
   become: yes
 
 - name: Install CRDs via Kubectl directly (Ultra Fast Bypass)
   shell: kubectl apply --server-side -f /tmp/kube-prometheus-stack/crds/
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   become: yes
-  # 👆 이 명령어가 Helm 대신 CRD를 설치합니다. 메모리 낭비가 없어 멈추지 않습니다.
+
+- name: Short pause for API server to digest CRDs
+  pause:
+    seconds: 10
 
 # ======================================================================
 # 🚀 [메인 앱 설치] 불필요한 대기 없이 다이렉트 런
@@ -73,7 +80,11 @@
       --set alertmanager.enabled=false \
       --skip-crds \
       --wait=false \
-      --timeout 5m
+      --timeout 5m \
+      --disable-openapi-validation
+  environment:
+    # 👆 [사전 검토로 추가된 방어막] Helm이 K3s 클러스터를 찾을 수 있도록 경로 지정
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   become: yes
 
 # ======================================================================
@@ -85,10 +96,11 @@
     namespace: "{{ monitoring_namespace }}"
     label_selectors:
       - app.kubernetes.io/name=prometheus
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
   register: pod_list
   until: pod_list.resources | length > 0 and (pod_list.resources[0].status.phase == 'Running')
-  retries: 20
-  delay: 30
+  retries: 40
+  delay: 15
   become: yes
 
 - name: Wait for Grafana Pod to be Running
@@ -97,8 +109,9 @@
     namespace: "{{ monitoring_namespace }}"
     label_selectors:
       - app.kubernetes.io/name=grafana
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
   register: grafana_pod
   until: grafana_pod.resources | length > 0 and (grafana_pod.resources[0].status.phase == 'Running')
-  retries: 20
-  delay: 30
+  retries: 40
+  delay: 15
   become: yes
