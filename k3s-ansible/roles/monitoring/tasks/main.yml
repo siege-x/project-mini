@@ -44,47 +44,17 @@
   become: yes
 
 # ======================================================================
-# 🚀 [발표용 핵심 최적화] CRD 분리 및 초고속 직접 설치
+# 🚀 [메인 앱 설치] 순정 Helm 아키텍처 복구 (수동 꼼수 전면 폐기)
 # ======================================================================
 - name: Update Helm Repo
   shell: /usr/local/bin/helm repo update
   become: yes
 
-# 🛑 [아키텍처 구조적 결함 해결] 멱등성(Idempotency) 보장을 위한 잔재 완전 삭제
-# 이전 실행 실패로 인해 /tmp 폴더에 오염된 파일이나 빈 폴더가 남아있으면, 
-# Helm이 압축 풀기를 스킵해버리는 치명적 구조 결함을 원천 차단합니다.
-- name: Clean up corrupted chart files from previous runs
-  shell: rm -rf /tmp/kube-prometheus-stack /tmp/kube-prometheus-stack*.tgz
-  become: yes
-
-# 🛑 [명시적 경로 선언] 다운로드 파일과 압축 해제 폴더를 모두 안전한 임시 폴더(/tmp)로 지정
-# 헬름의 모호한 --untar 옵션을 버리고, 경로를 100% 통제하는 표준 방식으로 변경합니다.
-- name: Download and Extract kube-prometheus-stack
-  shell: |
-    # 1. 100% 깨끗한 초기 상태의 /tmp로 이동
-    cd /tmp
-    
-    # 2. 현재 폴더(/tmp)에 압축 파일 다운로드
-    /usr/local/bin/helm pull prometheus-community/kube-prometheus-stack
-    
-    # 3. 다운받은 파일을 현재 폴더에 정확히 압축 해제 -> /tmp/kube-prometheus-stack 폴더 100% 생성 보장
-    tar -xzf kube-prometheus-stack-*.tgz
-  become: yes
-
-- name: Install CRDs via Kubectl directly (Ultra Fast Bypass)
-  shell: kubectl apply --server-side -f /tmp/kube-prometheus-stack/crds/
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-  become: yes
-
-- name: Short pause for API server to digest CRDs
-  pause:
-    seconds: 10
-
-# ======================================================================
-# 🚀 [메인 앱 설치] 불필요한 대기 없이 다이렉트 런
-# ======================================================================
-- name: Deploy kube-prometheus-stack (Main App)
+# 🛑 [핵심 변경 사항] 
+# 불안정한 수동 다운로드, 압축 해제, kubectl apply 꼼수를 모두 제거했습니다.
+# --skip-crds 옵션을 삭제하여, Helm이 메인 앱과 CRD를 한 번에 안전하게 설치하도록 아키텍처를 정상화했습니다.
+# t3.micro의 리소스 한계를 고려해 타임아웃을 10분(10m)으로 넉넉하게 늘렸습니다.
+- name: Deploy kube-prometheus-stack (Main App & CRDs)
   shell: |
     /usr/local/bin/helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
       --namespace {{ monitoring_namespace }} \
@@ -93,9 +63,8 @@
       --set prometheusOperator.admissionWebhooks.patch.enabled=false \
       --set prometheusOperator.tls.enabled=false \
       --set alertmanager.enabled=false \
-      --skip-crds \
       --wait=false \
-      --timeout 5m \
+      --timeout 10m \
       --disable-openapi-validation
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
