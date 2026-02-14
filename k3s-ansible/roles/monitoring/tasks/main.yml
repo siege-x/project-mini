@@ -51,7 +51,7 @@
   become: yes
 
 - name: Download and Untar kube-prometheus-stack (Fast Download)
-  shell: /usr/local/bin/helm pull prometheus-community/kube-prometheus-stack --untar --dest /tmp
+  shell: /usr/local/bin/helm pull prometheus-community/kube-prometheus-stack --untar --destination /tmp
   become: yes
 
 - name: Install CRDs via Kubectl directly (Ultra Fast Bypass)
