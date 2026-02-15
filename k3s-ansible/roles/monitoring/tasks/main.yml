@@ -6,7 +6,7 @@
   ignore_errors: yes
 
 # ======================================================================
-# 🏗️ 1. 인프라 기초 공사
+# 🏗️ 1. 인프라 기초 공사 (기존 유지 - 완벽함)
 # ======================================================================
 - name: Install Helm setup script
   shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
@@ -14,7 +14,6 @@
     creates: /usr/local/bin/helm
   become: yes
 
-# [수정포인트 1] apt 대신 pip로 쿠버네티스 파이썬 라이브러리 설치 (충돌 방지)
 - name: Install python3-pip
   apt:
     name: python3-pip
@@ -51,32 +50,39 @@
   become: yes
 
 # ======================================================================
-# 🚀 2. [아키텍처 최적화] t3.micro 생존을 위한 CRD 1개 파일로 병합 및 설치
+# 🚀 2. [아키텍처 완결] t3.micro 한계 돌파: CRD 분할 렌더링 및 점진 투여
 # ======================================================================
 - name: Update Helm Repo
   shell: /usr/local/bin/helm repo update
   become: yes
 
-# 🛑 [수정포인트 2] 폴더 압축 해제 로직 완전 삭제! 공식 CRD 전용 차트를 1개의 yaml 파일로 렌더링
-- name: Render CRDs from standalone chart into a single file
-  shell: /usr/local/bin/helm template prom-crds prometheus-community/prometheus-operator-crds > /tmp/prom-crds.yaml
+# 🛑 [핵심 1] 1개의 거대한 YAML로 뽑지 않고, --output-dir 옵션을 사용하여 수십 개의 작은 파일로 자동 분할 저장합니다.
+- name: Render CRDs into small individual files
+  shell: |
+    rm -rf /tmp/prom-crds-split
+    /usr/local/bin/helm template prom-crds prometheus-community/prometheus-operator-crds --output-dir /tmp/prom-crds-split
   become: yes
 
-# 🛑 [수정포인트 3] 메모리 폭주(OOM)를 막기 위해 무거운 Server-Side Apply 대신 가벼운 create/replace 방식 사용
-- name: Install CRDs via Kubectl directly (Lightweight)
-  shell: kubectl replace -f /tmp/prom-crds.yaml --force || kubectl create -f /tmp/prom-crds.yaml
+# 🛑 [핵심 2] 쪼개진 꼬마 파일들을 하나씩 찾아서 2초 간격으로 API 서버에 던집니다. (OOM 메모리 폭주 원천 차단)
+- name: Install CRDs piece by piece safely
+  shell: |
+    find /tmp/prom-crds-split -name "*.yaml" | while read yaml_file; do
+      kubectl apply --server-side --force-conflicts -f "$yaml_file"
+      sleep 2
+    done
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   become: yes
 
-# 🛑 [핵심 방어막] API 서버가 방대한 CRD를 DB에 소화할 시간을 충분히(30초) 줍니다.
 - name: Short pause for API server to digest CRDs
   pause:
-    seconds: 30
+    seconds: 15
 
 # ======================================================================
-# 🚀 3. [메인 앱 설치] CRD 스킵 및 초경량화 배포
+# 🚀 3. [메인 앱 설치] SSH 끊김 방지(async) 도입
 # ======================================================================
+# 🛑 [핵심 3] 작업이 오래 걸릴 때 발생하는 UNREACHABLE 통신 에러를 막기 위해
+# Ansible의 async(백그라운드 실행)와 poll(주기적 확인)을 도입합니다.
 - name: Deploy kube-prometheus-stack (Main App)
   shell: |
     /usr/local/bin/helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
@@ -93,6 +99,8 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   become: yes
+  async: 900    # 최대 15분(900초)까지 백그라운드 실행을 허용합니다.
+  poll: 15      # 15초마다 한 번씩 완료되었는지 조용히 체크만 합니다.
 
 # ======================================================================
 # 🏁 4. 파드 기동 확인
