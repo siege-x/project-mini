@@ -6,7 +6,7 @@
   ignore_errors: yes
 
 # ======================================================================
-# 🏗️ 1. 인프라 기초 공사
+# 1. 인프라 기초 공사
 # ======================================================================
 - name: Install Helm setup script
   shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
@@ -50,40 +50,44 @@
   become: yes
 
 # ======================================================================
-# 🚀 2. [아키텍처 완결] 원본 차트 압축 해제 및 엄격한 CRD 점진 투여
+# 2. CRD 처리 (경로/폴더 의존성 완전 삭제 및 t3.micro 메모리 제어)
 # ======================================================================
 - name: Update Helm Repo
   shell: /usr/local/bin/helm repo update
   become: yes
 
-# 🛑 [핵심 1] 버전 충돌 방지를 위해, 설치하려는 메인 차트와 100% 동일한 원본 파일을 압축 풉니다.
-- name: Download and Extract Exact Matching CRDs
-  shell: |
-    rm -rf /tmp/kube-prometheus-stack*
-    cd /tmp
-    /usr/local/bin/helm pull prometheus-community/kube-prometheus-stack --untar
-  become: yes
-
-# 🛑 [핵심 2] 에러를 삼키던 멍청한 반복문 폐기! 
-# set -e를 통해 단 하나의 CRD라도 실패하면 앤서블이 즉시 실패(Failed)하도록 강제합니다.
-- name: Install CRDs strictly piece by piece safely
+- name: Render and Split CRDs directly
   shell: |
     set -e
-    for crd_file in /tmp/kube-prometheus-stack/crds/*.yaml; do
-      echo "Applying $crd_file ..."
-      kubectl apply --server-side --force-conflicts -f "$crd_file"
-      sleep 3
+    # 1. 폴더 압축 풀기 생략. 공식 CRD를 하나의 텍스트 파일로 추출
+    /usr/local/bin/helm template prom-crds prometheus-community/prometheus-operator-crds > /tmp/all-crds.yaml
+
+    # 2. 쪼갠 파일을 담을 작업 폴더 생성
+    mkdir -p /tmp/crd-split
+    cd /tmp/crd-split
+    rm -f *.yaml
+
+    # 3. awk를 이용해 거대 YAML 파일을 작은 파일(crd-1.yaml 등)로 분할
+    awk '/^---$/ {n++} {print > ("crd-" n ".yaml")}' /tmp/all-crds.yaml
+
+    # 4. 분할된 파일을 하나씩 순차 적용하여 OOM 방지
+    for f in crd-*.yaml; do
+      if [ -s "$f" ]; then
+        echo "Applying $f ..."
+        kubectl apply --server-side --force-conflicts -f "$f"
+        sleep 2
+      fi
     done
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   become: yes
 
-- name: Short pause for API server to digest CRDs
+- name: Wait for API server to fully register CRDs
   pause:
-    seconds: 15
+    seconds: 30
 
 # ======================================================================
-# 🚀 3. [메인 앱 설치] 비동기 처리(async)로 통신 끊김 방지
+# 3. 메인 앱 설치
 # ======================================================================
 - name: Deploy kube-prometheus-stack (Main App)
   shell: |
@@ -105,7 +109,7 @@
   poll: 15
 
 # ======================================================================
-# 🏁 4. 파드 기동 확인
+# 4. 파드 기동 확인
 # ======================================================================
 - name: Wait for Prometheus Pod to be Running
   kubernetes.core.k8s_info:
