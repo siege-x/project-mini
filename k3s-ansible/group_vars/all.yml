@@ -10,7 +10,7 @@ service_cidr: "10.96.0.0/12"
 
 # 3. 노드 기초 설정
 # 안정성을 위해 Swap 비활성화를 유지하는 것이 좋습니다.
-disable_swap: false
+disable_swap: false 
 
 # 4. K3s Server 전용 추가 인자 (k3s-server 역할에서 사용)
 # 'master' 대신 'server' 명칭을 사용합니다.
