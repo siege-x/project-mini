@@ -6,7 +6,7 @@
   ignore_errors: yes
 
 # ======================================================================
-# 🏗️ 1. 인프라 기초 공사 (기존 유지 - 완벽함)
+# 🏗️ 1. 인프라 기초 공사
 # ======================================================================
 - name: Install Helm setup script
   shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
@@ -50,25 +50,29 @@
   become: yes
 
 # ======================================================================
-# 🚀 2. [아키텍처 완결] t3.micro 한계 돌파: CRD 분할 렌더링 및 점진 투여
+# 🚀 2. [아키텍처 완결] 원본 차트 압축 해제 및 엄격한 CRD 점진 투여
 # ======================================================================
 - name: Update Helm Repo
   shell: /usr/local/bin/helm repo update
   become: yes
 
-# 🛑 [핵심 1] 1개의 거대한 YAML로 뽑지 않고, --output-dir 옵션을 사용하여 수십 개의 작은 파일로 자동 분할 저장합니다.
-- name: Render CRDs into small individual files
+# 🛑 [핵심 1] 버전 충돌 방지를 위해, 설치하려는 메인 차트와 100% 동일한 원본 파일을 압축 풉니다.
+- name: Download and Extract Exact Matching CRDs
   shell: |
-    rm -rf /tmp/prom-crds-split
-    /usr/local/bin/helm template prom-crds prometheus-community/prometheus-operator-crds --output-dir /tmp/prom-crds-split
+    rm -rf /tmp/kube-prometheus-stack*
+    cd /tmp
+    /usr/local/bin/helm pull prometheus-community/kube-prometheus-stack --untar
   become: yes
 
-# 🛑 [핵심 2] 쪼개진 꼬마 파일들을 하나씩 찾아서 2초 간격으로 API 서버에 던집니다. (OOM 메모리 폭주 원천 차단)
-- name: Install CRDs piece by piece safely
+# 🛑 [핵심 2] 에러를 삼키던 멍청한 반복문 폐기! 
+# set -e를 통해 단 하나의 CRD라도 실패하면 앤서블이 즉시 실패(Failed)하도록 강제합니다.
+- name: Install CRDs strictly piece by piece safely
   shell: |
-    find /tmp/prom-crds-split -name "*.yaml" | while read yaml_file; do
-      kubectl apply --server-side --force-conflicts -f "$yaml_file"
-      sleep 2
+    set -e
+    for crd_file in /tmp/kube-prometheus-stack/crds/*.yaml; do
+      echo "Applying $crd_file ..."
+      kubectl apply --server-side --force-conflicts -f "$crd_file"
+      sleep 3
     done
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
@@ -79,10 +83,8 @@
     seconds: 15
 
 # ======================================================================
-# 🚀 3. [메인 앱 설치] SSH 끊김 방지(async) 도입
+# 🚀 3. [메인 앱 설치] 비동기 처리(async)로 통신 끊김 방지
 # ======================================================================
-# 🛑 [핵심 3] 작업이 오래 걸릴 때 발생하는 UNREACHABLE 통신 에러를 막기 위해
-# Ansible의 async(백그라운드 실행)와 poll(주기적 확인)을 도입합니다.
 - name: Deploy kube-prometheus-stack (Main App)
   shell: |
     /usr/local/bin/helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
@@ -99,8 +101,8 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   become: yes
-  async: 900    # 최대 15분(900초)까지 백그라운드 실행을 허용합니다.
-  poll: 15      # 15초마다 한 번씩 완료되었는지 조용히 체크만 합니다.
+  async: 900
+  poll: 15
 
 # ======================================================================
 # 🏁 4. 파드 기동 확인
