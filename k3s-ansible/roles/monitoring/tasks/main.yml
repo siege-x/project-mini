@@ -75,10 +75,11 @@
                 with open(f"crd-{i}.yaml", "w") as o: o.write(doc.strip())
     '
 
-    # 4. 분할된 파일을 2초 간격으로 하나씩 순차 적용하여 OOM 방지
+    # 4. [핵심] 버그가 있는 --server-side 옵션 폐기!
+    # 용량 제한을 피하는 가장 단순한 create(생성) 또는 replace(덮어쓰기) 사용
     for f in crd-*.yaml; do
       echo "Applying $f ..."
-      kubectl apply --server-side --force-conflicts -f "$f"
+      kubectl create -f "$f" || kubectl replace -f "$f"
       sleep 2
     done
   environment:
