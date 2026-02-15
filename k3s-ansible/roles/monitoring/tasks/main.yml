@@ -59,7 +59,7 @@
 - name: Render and Split CRDs directly
   shell: |
     set -e
-    # 1. 폴더 압축 풀기 생략. 공식 CRD를 하나의 텍스트 파일로 추출
+    # 1. 공식 CRD를 하나의 텍스트 파일로 추출
     /usr/local/bin/helm template prom-crds prometheus-community/prometheus-operator-crds > /tmp/all-crds.yaml
 
     # 2. 쪼갠 파일을 담을 작업 폴더 생성
@@ -70,12 +70,14 @@
     # 3. awk를 이용해 거대 YAML 파일을 작은 파일(crd-1.yaml 등)로 분할
     awk '/^---$/ {n++} {print > ("crd-" n ".yaml")}' /tmp/all-crds.yaml
 
-    # 4. 분할된 파일을 하나씩 순차 적용하여 OOM 방지
+    # 4. [핵심 수정] 분할된 파일 중 '진짜 쿠버네티스 객체(kind:)'가 있는 파일만 적용
     for f in crd-*.yaml; do
-      if [ -s "$f" ]; then
+      if grep -q "kind:" "$f"; then
         echo "Applying $f ..."
         kubectl apply --server-side --force-conflicts -f "$f"
         sleep 2
+      else
+        echo "Skipping $f (Empty or comments only)"
       fi
     done
   environment:
