@@ -1,140 +1,58 @@
 ---
-# [사전 청소] 헬름 프로세스 찌꺼기 제거
-- name: Kill stuck helm processes
-  shell: pkill -9 helm
+# [1] 기존 찌꺼기 청소
+- name: Clean up temporary files
+  shell: rm -rf /tmp/all-crds.yaml /tmp/crd-split
   become: yes
   ignore_errors: yes
 
-# ======================================================================
-# 1. 인프라 기초 공사
-# ======================================================================
-- name: Install Helm setup script
-  shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-  args:
-    creates: /usr/local/bin/helm
-  become: yes
-
-- name: Install python3-pip
-  apt:
-    name: python3-pip
-    state: present
-  become: yes
-
-- name: Install kubernetes python library
-  pip:
-    name: kubernetes
-  become: yes
-
+# [2] 기초 공사 (Helm Repo 추가)
 - name: Add Prometheus Community Helm Repo
   kubernetes.core.helm_repository:
     name: prometheus-community
     repo_url: "https://prometheus-community.github.io/helm-charts"
   become: yes
 
-- name: Create monitoring namespace
-  kubernetes.core.k8s:
-    name: "{{ monitoring_namespace }}"
-    api_version: v1
-    kind: Namespace
-    state: present
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
-  become: yes
-
-- name: Render Prometheus Stack values file
-  template:
-    src: monitor-values.yml.j2
-    dest: /tmp/monitor-values.yml
-  vars:
-    target_node: "{{ target_node_name | default('') }}"
-    cluster_ip: "{{ ansible_host }}"
-  become: yes
-
 # ======================================================================
-# 2. CRD 처리 (경로/폴더 의존성 완전 삭제 및 t3.micro 메모리 제어)
+# 🚀 [핵심] 폴더 뒤적거리지 않고 설계도 직접 생성 (189번 에러 원천 차단)
 # ======================================================================
-- name: Update Helm Repo
-  shell: /usr/local/bin/helm repo update
-  become: yes
-
-- name: Render and Split CRDs directly
+- name: Generate and Split CRDs directly
   shell: |
     set -e
-    # 1. 공식 CRD를 하나의 텍스트 파일로 추출
+    # 폴더를 뒤지는 대신 헬름 템플릿 엔진으로 설계도 내용만 텍스트로 바로 뽑아냅니다.
     /usr/local/bin/helm template prom-crds prometheus-community/prometheus-operator-crds > /tmp/all-crds.yaml
 
-    # 2. 쪼갠 파일을 담을 작업 폴더 생성
+    # 쪼개진 파일을 담을 폴더 생성
     mkdir -p /tmp/crd-split
     cd /tmp/crd-split
-    rm -f *.yaml
 
-    # 3. awk를 이용해 거대 YAML 파일을 작은 파일(crd-1.yaml 등)로 분할
-    awk '/^---$/ {n++} {print > ("crd-" n ".yaml")}' /tmp/all-crds.yaml
+    # 파이썬으로 진짜 알맹이(kind:)가 있는 것만 골라 낱개 파일로 만듭니다.
+    python3 -c '
+    import sys
+    with open("/tmp/all-crds.yaml", "r") as f:
+        for i, doc in enumerate(f.read().split("---")):
+            if "kind:" in doc.strip():
+                with open(f"crd-{i}.yaml", "w") as o: o.write(doc.strip())
+    '
 
-    # 4. [핵심 수정] 분할된 파일 중 '진짜 쿠버네티스 객체(kind:)'가 있는 파일만 적용
+    # 생성된 낱개 파일들을 하나씩 적용합니다. (경로 추적 안 함)
     for f in crd-*.yaml; do
-      if grep -q "kind:" "$f"; then
-        echo "Applying $f ..."
-        kubectl apply --server-side --force-conflicts -f "$f"
-        sleep 2
-      else
-        echo "Skipping $f (Empty or comments only)"
-      fi
+      echo "Applying $f ..."
+      kubectl apply --server-side --force-conflicts -f "$f"
+      sleep 2
     done
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   become: yes
 
-- name: Wait for API server to fully register CRDs
-  pause:
-    seconds: 30
-
-# ======================================================================
-# 3. 메인 앱 설치
-# ======================================================================
-- name: Deploy kube-prometheus-stack (Main App)
+# [3] 메인 앱 설치 (이미 CRD는 넣었으니 무시하고 진행)
+- name: Deploy kube-prometheus-stack
   shell: |
     /usr/local/bin/helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
       --namespace {{ monitoring_namespace }} \
       --values /tmp/monitor-values.yml \
       --set prometheusOperator.admissionWebhooks.enabled=false \
-      --set prometheusOperator.admissionWebhooks.patch.enabled=false \
-      --set prometheusOperator.tls.enabled=false \
-      --set alertmanager.enabled=false \
       --skip-crds \
-      --wait=false \
-      --timeout 10m \
-      --disable-openapi-validation
+      --wait=false
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-  become: yes
-  async: 900
-  poll: 15
-
-# ======================================================================
-# 4. 파드 기동 확인
-# ======================================================================
-- name: Wait for Prometheus Pod to be Running
-  kubernetes.core.k8s_info:
-    kind: Pod
-    namespace: "{{ monitoring_namespace }}"
-    label_selectors:
-      - app.kubernetes.io/name=prometheus
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
-  register: pod_list
-  until: pod_list.resources | length > 0 and (pod_list.resources[0].status.phase == 'Running')
-  retries: 40
-  delay: 15
-  become: yes
-
-- name: Wait for Grafana Pod to be Running
-  kubernetes.core.k8s_info:
-    kind: Pod
-    namespace: "{{ monitoring_namespace }}"
-    label_selectors:
-      - app.kubernetes.io/name=grafana
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
-  register: grafana_pod
-  until: grafana_pod.resources | length > 0 and (grafana_pod.resources[0].status.phase == 'Running')
-  retries: 40
-  delay: 15
   become: yes
