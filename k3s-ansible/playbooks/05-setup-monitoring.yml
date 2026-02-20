@@ -1,20 +1,20 @@
 ---
 - name: Setup Prometheus & Grafana Monitoring
-  hosts: servers        # Helm 명령은 Master(Server)에서 실행합니다.
-  become: true          # 관리자 권한(sudo) 사용
-  gather_facts: true    # 서버 정보 수집
+  hosts: servers
+  become: true
+  gather_facts: true
   
   pre_tasks:
-    # 1. agents 그룹에 있는 서버들의 정보를 미리 가져옵니다.
+    # 1. agents 그룹 정보 수집
     - name: Get facts from agents for node targeting
       setup:
         delegate_to: "{{ item }}"
         delegate_facts: true
-        loop: "{{ groups['agents'] }}"
-        ignore_errors: true
+      # [수정됨] loop는 setup 모듈의 자식이 아니라, 형제 레벨이어야 합니다. (들여쓰기 앞으로 당김)
+      loop: "{{ groups['agents'] }}"
+      ignore_errors: true
 
-    # [수정됨] 변수를 여기서 미리 확정 지어서 '전역 변수'로 만듭니다.
-    # 그래야 나중에 post_tasks에서도 읽을 수 있습니다.
+    # 2. 타겟 노드 변수 전역 설정
     - name: Set target node name globally
       set_fact:
         target_node_name: "{{ hostvars[groups['agents'][0]]['ansible_hostname'] }}"
@@ -22,11 +22,9 @@
   roles:
     - role: monitoring
       vars:
-        # 위에서 만든 전역 변수를 역할에 넘겨줍니다.
         target_node: "{{ target_node_name }}"
 
   post_tasks:
-    # 설치 완료 후 접속 정보를 화면에 예쁘게 보여줍니다.
     - name: Display Grafana Access Info
       debug:
         msg: 
