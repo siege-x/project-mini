@@ -136,5 +136,5 @@ jobs:
       - name: Run Ansible Playbook
         working-directory: k3s-ansible
         run: |
-          # ubuntu 유저로 접속하여 실행합니다.
+          # ubuntu 유저로 접속하여 실행합니다. 
           ansible-playbook -i inventory/hosts.yml site.yml -u ubuntu
