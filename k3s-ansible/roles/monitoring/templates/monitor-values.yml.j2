@@ -9,13 +9,18 @@ grafana:
   nodeSelector:
     kubernetes.io/hostname: "{{ target_node }}"
   
-  # [핵심 변경] 메모리 제한 완화
+  # [추가] 데이터 보존을 위한 스토리지 설정
+  persistence:
+    enabled: true
+    storageClassName: "local-path"
+    size: 5Gi
+
   resources:
     requests:
       memory: 128Mi
       cpu: 100m
     limits:
-      memory: 1Gi # 256Mi -> 1Gi
+      memory: 1Gi
 
 prometheus:
   prometheusSpec:
@@ -23,14 +28,32 @@ prometheus:
     nodeSelector:
       kubernetes.io/hostname: "{{ target_node }}"
     
-    # [핵심 변경] 메모리 제한 완화
+    # [추가] 데이터 보존을 위한 스토리지 설정
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: "local-path"
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
     resources:
       requests:
         memory: 512Mi
         cpu: 500m
       limits:
-        memory: 2Gi # 512Mi -> 2Gi
+        memory: 2Gi
 
-# [핵심 변경] Alertmanager 활성화 (t3.medium은 충분함)
 alertmanager:
   enabled: true
+  # [추가] Alertmanager도 저장소가 있어야 정상 작동합니다
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: "local-path"
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 2Gi
