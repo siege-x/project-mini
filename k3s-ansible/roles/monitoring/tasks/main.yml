@@ -69,6 +69,8 @@
     release_namespace: "{{ monitoring_namespace }}"
     values_files:
       - /tmp/monitor-values.yml
+    force: yes             # <--- 추가: 기존에 꼬인 리소스(Pending 상태 등)를 강제로 교체합니다.
+    cleanup_on_fail: yes    # <--- 추가: 배포 실패 시 찌꺼기를 남기지 않고 정리합니다.
     skip_crds: false 
     wait: yes
     atomic: true
