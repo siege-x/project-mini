@@ -2,22 +2,24 @@
 - name: Setup Prometheus & Grafana Monitoring
   hosts: servers
   become: true
-  gather_facts: true
+  gather_facts: true  # 마스터 노드 정보 수집
   
   pre_tasks:
-    # 1. agents 그룹 정보 수집
+    # [수정 1] setup 모듈 에러 해결
+    # delegate_to와 delegate_facts를 setup: 밑이 아니라, 밖으로 뺐습니다. (들여쓰기 수정)
     - name: Get facts from agents for node targeting
       setup:
-        delegate_to: "{{ item }}"
-        delegate_facts: true
-      # [수정됨] loop는 setup 모듈의 자식이 아니라, 형제 레벨이어야 합니다. (들여쓰기 앞으로 당김)
+        gather_subset: all
+      delegate_to: "{{ item }}"
+      delegate_facts: true
       loop: "{{ groups['agents'] }}"
       ignore_errors: true
 
-    # 2. 타겟 노드 변수 전역 설정
+    # [수정 2] Deprecation Warning 원천 제거
+    # ansible_hostname -> ansible_facts['hostname'] 으로 변경하여 경고 삭제
     - name: Set target node name globally
       set_fact:
-        target_node_name: "{{ hostvars[groups['agents'][0]]['ansible_hostname'] }}"
+        target_node_name: "{{ hostvars[groups['agents'][0]]['ansible_facts']['hostname'] }}"
 
   roles:
     - role: monitoring
@@ -25,6 +27,7 @@
         target_node: "{{ target_node_name }}"
 
   post_tasks:
+    # [수정 3] 마지막 출력 메시지에서도 경고가 안 뜨도록 문법 수정
     - name: Display Grafana Access Info
       debug:
         msg: 
