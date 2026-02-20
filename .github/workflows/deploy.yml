@@ -45,7 +45,7 @@ jobs:
           echo "agent_fixed_ip=$(terraform output -raw agent_fixed_private_ip)" >> $GITHUB_OUTPUT
 
   # ==================================================================================
-  # 2. Ansible Job: K3s 설정 및 모니터링 배포 (무결점 아키텍처 적용)
+  # 2. Ansible Job: K3s 설정 및 모니터링 배포
   # ==================================================================================
   ansible:
     name: Configure K3s & Monitoring
@@ -54,8 +54,6 @@ jobs:
     
     env:
       ANSIBLE_HOST_KEY_CHECKING: "False"
-      # [참고] 여기에 땜질용 설정(DEPRECATION_WARNINGS)은 넣지 않습니다.
-      # 아래 설치 단계와 실행 명령어에서 근본적으로 해결합니다.
 
     steps:
       - name: Checkout repository
@@ -77,14 +75,14 @@ jobs:
             ForwardAgent yes
           EOF
 
-      # [핵심 1] Ansible 엔진과 라이브러리 버전을 최신으로 '강제 정렬'하여 내부 경고 제거
-      - name: Install Ansible and dependencies (Clean Versioning)
+      # [수정됨] 누락되었던 community.general 추가!
+      - name: Install Ansible and dependencies
         run: |
           python3 -m pip install --upgrade pip
-          # 최신 Ansible Core(2.15+)를 설치하여 구버전 호환성 경고 해결
+          # 엔진 업데이트
           pip install "ansible-core>=2.15" kubernetes openshift pyyaml
-          # 기존 캐시를 무시하고 최신 컬렉션으로 강제 재설치
-          ansible-galaxy collection install kubernetes.core --force
+          # [핵심] kubernetes.core와 함께 community.general(modprobe용)을 반드시 설치해야 합니다.
+          ansible-galaxy collection install kubernetes.core community.general --force
 
       - name: Generate Inventory from Template
         working-directory: k3s-ansible
@@ -99,7 +97,7 @@ jobs:
           echo "--- Generated Inventory ---"
           cat inventory/hosts.yml
 
-      # [핵심 2] 실행 시점에 파이썬 경로를 '못 박아서' 탐색 경고 자체를 원천 차단
+      # [경고 제거] 실행 시점에 파이썬 경로 고정
       - name: Run Ansible Playbook
         working-directory: k3s-ansible
         run: |
