@@ -6,7 +6,7 @@ metadata:
   labels:
     app: nginx
 spec:
-  replicas: 2 # [기본] 처음엔 파드 2개로 시작
+  replicas: 2
   selector:
     matchLabels:
       app: nginx
@@ -17,16 +17,15 @@ spec:
     spec:
       containers:
       - name: nginx
-        image: nginx:latest # Nginx 최신 버전 사용
+        image: nginx:latest
         ports:
         - containerPort: 80
         
-        # [★ HPA 핵심 설정] 리소스 요청 및 제한
-        # 이게 없으면 "CPU를 얼마나 썼는지" 계산할 기준이 없어서 오토스케일링이 안 됩니다.
+        # [Micro 잔재 삭제] 메모리 족쇄 해제
         resources:
           requests:
-            cpu: "100m"     # CPU 0.1개 (최소 보장)
-            memory: "128Mi" # 메모리 128MB
+            cpu: "100m"
+            memory: "128Mi"
           limits:
-            cpu: "250m"     # CPU 0.25개 (최대 사용량 제한)
-            memory: "256Mi" # 메모리 256MB
+            cpu: "1000m"  # 1 CPU까지 허용
+            memory: "1Gi" # 1GB까지 허용 (이전 256Mi)
