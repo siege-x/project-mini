@@ -1,13 +1,9 @@
 ---
-# [사전 청소] 헬름 프로세스 찌꺼기 제거
 - name: Kill stuck helm processes
   shell: pkill -9 helm
   become: yes
   ignore_errors: yes
 
-# ======================================================================
-# 1. 인프라 기초 공사 (제가 실수로 지웠던 부분 복구!)
-# ======================================================================
 - name: Install Helm setup script
   shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
   args:
@@ -49,72 +45,25 @@
     cluster_ip: "{{ ansible_host }}"
   become: yes
 
-# ======================================================================
-# 2. CRD 처리 (189번 에러를 격파한 성공 로직 적용)
-# ======================================================================
+# [핵심 변경] 꼼수 삭제 -> 표준 Helm 설치
 - name: Update Helm Repo
   shell: /usr/local/bin/helm repo update
   become: yes
 
-- name: Generate and Split CRDs directly
-  shell: |
-    set -e
-    # 1. 공식 CRD를 하나의 텍스트 파일로 직접 추출
-    /usr/local/bin/helm template prom-crds prometheus-community/prometheus-operator-crds > /tmp/all-crds.yaml
-
-    # 2. 쪼갠 파일을 담을 작업 폴더 생성
-    mkdir -p /tmp/crd-split
-    cd /tmp/crd-split
-
-    # 3. 파이썬을 이용해 진짜 알맹이(kind:)가 있는 것만 골라 분할
-    python3 -c '
-    import sys
-    with open("/tmp/all-crds.yaml", "r") as f:
-        for i, doc in enumerate(f.read().split("---")):
-            if "kind:" in doc.strip():
-                with open(f"crd-{i}.yaml", "w") as o: o.write(doc.strip())
-    '
-
-    # 4. [핵심] 버그가 있는 --server-side 옵션 폐기!
-    # 용량 제한을 피하는 가장 단순한 create(생성) 또는 replace(덮어쓰기) 사용
-    for f in crd-*.yaml; do
-      echo "Applying $f ..."
-      kubectl create -f "$f" || kubectl replace -f "$f"
-      sleep 2
-    done
+- name: Deploy kube-prometheus-stack
+  kubernetes.core.helm:
+    name: monitoring
+    chart_ref: prometheus-community/kube-prometheus-stack
+    release_namespace: "{{ monitoring_namespace }}"
+    values_files:
+      - /tmp/monitor-values.yml
+    skip_crds: false # 4GB RAM을 믿고 CRD 설치 허용
+    wait: yes
+    timeout: 15m0s
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   become: yes
 
-- name: Wait for API server to fully register CRDs
-  pause:
-    seconds: 30
-
-# ======================================================================
-# 3. 메인 앱 설치
-# ======================================================================
-- name: Deploy kube-prometheus-stack (Main App)
-  shell: |
-    /usr/local/bin/helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
-      --namespace {{ monitoring_namespace }} \
-      --values /tmp/monitor-values.yml \
-      --set prometheusOperator.admissionWebhooks.enabled=false \
-      --set prometheusOperator.admissionWebhooks.patch.enabled=false \
-      --set prometheusOperator.tls.enabled=false \
-      --set alertmanager.enabled=false \
-      --skip-crds \
-      --wait=false \
-      --timeout 10m \
-      --disable-openapi-validation
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-  become: yes
-  async: 900
-  poll: 15
-
-# ======================================================================
-# 4. 파드 기동 확인
-# ======================================================================
 - name: Wait for Prometheus Pod to be Running
   kubernetes.core.k8s_info:
     kind: Pod
