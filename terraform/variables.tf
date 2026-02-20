@@ -8,10 +8,10 @@ variable "project_name" {
   default     = "k3s-project"
 }
 
-# [핵심 변경] t3.micro -> t3.medium (4GB RAM)
+
 variable "instance_type" {
   description = "사용할 EC2 인스턴스 사양"
-  default     = "t3.medium"
+  default     = "t4g.medium"
 }
 
 variable "key_name" {
