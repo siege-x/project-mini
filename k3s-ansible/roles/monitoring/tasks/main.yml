@@ -61,6 +61,15 @@
   shell: /usr/local/bin/helm repo update
   become: yes
 
+# [추가된 부분] 6.5 기존에 꼬여서 Pending된 저장소(PVC) 강제 삭제
+# GitHub Actions가 AWS 서버에 접속해서 배수구를 먼저 뚫어주는 단계입니다.
+- name: Cleanup old monitoring PVCs
+  command: /usr/local/bin/kubectl delete pvc -n {{ monitoring_namespace }} --all
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  become: yes
+  ignore_errors: yes # 만약 지울 게 없어도 에러 내지 말고 다음으로 넘어가라는 뜻입니다.
+
 # 7. Helm 배포 (atomic 옵션 유지)
 - name: Deploy kube-prometheus-stack
   kubernetes.core.helm:
