@@ -1,1 +1,106 @@
+name: Provision & Configure K3s Cluster
 
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  # ==================================================================================
+  # 1. Terraform Job: 인프라 생성 및 IP 추출
+  # ==================================================================================
+  terraform:
+    name: Provision Infrastructure
+    runs-on: ubuntu-latest
+    
+    # Ansible Job으로 IP 정보를 넘겨주기 위한 Output 설정
+    outputs:
+      server_ip: ${{ steps.set_outputs.outputs.server_ip }}
+      agent_fixed_ip: ${{ steps.set_outputs.outputs.agent_fixed_ip }}
+    
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: terraform
+        run: terraform apply -auto-approve
+
+      - name: Set Outputs for Ansible
+        id: set_outputs
+        working-directory: terraform
+        run: |
+          # Server(Master) 공인 IP
+          echo "server_ip=$(terraform output -raw server_public_ip)" >> $GITHUB_OUTPUT
+          
+          # Fixed Agent(Monitoring) 사설 IP
+          echo "agent_fixed_ip=$(terraform output -raw agent_fixed_private_ip)" >> $GITHUB_OUTPUT
+
+  # ==================================================================================
+  # 2. Ansible Job: K3s 설정 및 모니터링 배포
+  # ==================================================================================
+  ansible:
+    name: Configure K3s & Monitoring
+    runs-on: ubuntu-latest
+    needs: terraform
+    
+    env:
+      ANSIBLE_HOST_KEY_CHECKING: "False"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup SSH private key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.ANSIBLE_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Setup SSH config (Bastion Host)
+        run: |
+          cat <<EOF > ~/.ssh/config
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+            IdentityFile ~/.ssh/id_rsa
+            ForwardAgent yes
+          EOF
+
+      - name: Install Ansible & Dependencies
+        run: |
+          pip install ansible
+          ansible-galaxy collection install kubernetes.core
+          pip install kubernetes openshift pyyaml
+
+      - name: Generate Inventory from Template
+        working-directory: k3s-ansible
+        env:
+          SERVER_IP: ${{ needs.terraform.outputs.server_ip }}
+          AGENT_IP: ${{ needs.terraform.outputs.agent_fixed_ip }}
+        run: |
+          # [잔재 청산] AGENT1_IP만 매핑합니다. (AGENT2 관련 코드 삭제됨)
+          export AGENT1_IP="$AGENT_IP"
+          
+          # envsubst로 템플릿 변수 치환
+          envsubst < inventory/hosts.yml.tmpl > inventory/hosts.yml
+          
+          echo "--- Generated Inventory ---"
+          cat inventory/hosts.yml
+
+      - name: Run Ansible Playbook
+        working-directory: k3s-ansible
+        run: |
+          ansible-playbook -i inventory/hosts.yml site.yml -u ubuntu
