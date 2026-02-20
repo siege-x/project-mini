@@ -1,15 +1,20 @@
 ---
-- name: Kill stuck helm processes
-  shell: pkill -9 helm
-  become: yes
-  ignore_errors: yes
-
+# 1. [구조적 해결] 땜질용 pkill 삭제 (서버 사양이 충분하므로 불필요)
+# 2. [표준화] Helm 설치 스크립트 실행 (기존 유지)
 - name: Install Helm setup script
   shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
   args:
     creates: /usr/local/bin/helm
   become: yes
 
+# 3. [표준화] Helm Idempotency 경고를 근본적으로 해결하는 전용 모듈 사용
+- name: Ensure helm-diff plugin is present
+  kubernetes.core.helm_plugin:
+    plugin_url: "https://github.com/databus23/helm-diff"
+    state: present
+  become: yes
+
+# 4. 의존성 패키지 설치 (기존 유지)
 - name: Install python3-pip
   apt:
     name: python3-pip
@@ -21,6 +26,7 @@
     name: kubernetes
   become: yes
 
+# 5. Helm 레포지토리 및 네임스페이스 설정 (기존 유지)
 - name: Add Prometheus Community Helm Repo
   kubernetes.core.helm_repository:
     name: prometheus-community
@@ -36,6 +42,7 @@
     kubeconfig: /etc/rancher/k3s/k3s.yaml
   become: yes
 
+# 6. 설정 파일 렌더링 (기존 유지)
 - name: Render Prometheus Stack values file
   template:
     src: monitor-values.yml.j2
@@ -45,11 +52,11 @@
     cluster_ip: "{{ ansible_host }}"
   become: yes
 
-# [핵심 변경] 꼼수 삭제 -> 표준 Helm 설치
 - name: Update Helm Repo
   shell: /usr/local/bin/helm repo update
   become: yes
 
+# 7. [구조적 해결] Helm 배포 시 atomic 옵션으로 안정성 확보
 - name: Deploy kube-prometheus-stack
   kubernetes.core.helm:
     name: monitoring
@@ -57,13 +64,15 @@
     release_namespace: "{{ monitoring_namespace }}"
     values_files:
       - /tmp/monitor-values.yml
-    skip_crds: false # 4GB RAM을 믿고 CRD 설치 허용
+    skip_crds: false 
     wait: yes
+    atomic: true  # 실패 시 찌꺼기 남기지 않고 자동 롤백하는 표준 방식
     timeout: 15m0s
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   become: yes
 
+# 8. Pod 상태 확인 (기존 유지)
 - name: Wait for Prometheus Pod to be Running
   kubernetes.core.k8s_info:
     kind: Pod
