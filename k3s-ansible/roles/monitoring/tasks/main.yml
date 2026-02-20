@@ -1,20 +1,25 @@
 ---
-# 1. [구조적 해결] 땜질용 pkill 삭제 (서버 사양이 충분하므로 불필요)
-# 2. [표준화] Helm 설치 스크립트 실행 (기존 유지)
+# 1. Helm 설치 스크립트 실행
 - name: Install Helm setup script
   shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
   args:
     creates: /usr/local/bin/helm
   become: yes
 
-# 3. [표준화] Helm Idempotency 경고를 근본적으로 해결하는 전용 모듈 사용
-- name: Ensure helm-diff plugin is present
-  kubernetes.core.helm_plugin:
-    plugin_url: "https://github.com/databus23/helm-diff"
-    state: present
+# 2. [정석 구현] 플러그인 목록을 먼저 '조회'합니다. (에러 발생 없음, 변경 상태 아님)
+- name: Check installed helm plugins
+  command: helm plugin list
+  register: helm_plugins
+  changed_when: false
   become: yes
 
-# 4. 의존성 패키지 설치 (기존 유지)
+# 3. [정석 구현] 위 목록에 'diff'가 없을 때만 설치합니다. (꼼수 없는 조건부 실행)
+- name: Install helm-diff plugin
+  command: helm plugin install https://github.com/databus23/helm-diff
+  when: "'diff' not in helm_plugins.stdout"
+  become: yes
+
+# 4. 의존성 패키지 설치
 - name: Install python3-pip
   apt:
     name: python3-pip
@@ -26,7 +31,7 @@
     name: kubernetes
   become: yes
 
-# 5. Helm 레포지토리 및 네임스페이스 설정 (기존 유지)
+# 5. Helm 레포지토리 및 네임스페이스 설정
 - name: Add Prometheus Community Helm Repo
   kubernetes.core.helm_repository:
     name: prometheus-community
@@ -42,7 +47,7 @@
     kubeconfig: /etc/rancher/k3s/k3s.yaml
   become: yes
 
-# 6. 설정 파일 렌더링 (기존 유지)
+# 6. 설정 파일 렌더링
 - name: Render Prometheus Stack values file
   template:
     src: monitor-values.yml.j2
@@ -56,7 +61,7 @@
   shell: /usr/local/bin/helm repo update
   become: yes
 
-# 7. [구조적 해결] Helm 배포 시 atomic 옵션으로 안정성 확보
+# 7. Helm 배포 (atomic 옵션 유지)
 - name: Deploy kube-prometheus-stack
   kubernetes.core.helm:
     name: monitoring
@@ -66,13 +71,13 @@
       - /tmp/monitor-values.yml
     skip_crds: false 
     wait: yes
-    atomic: true  # 실패 시 찌꺼기 남기지 않고 자동 롤백하는 표준 방식
+    atomic: true
     timeout: 15m0s
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   become: yes
 
-# 8. Pod 상태 확인 (기존 유지)
+# 8. Pod 상태 확인
 - name: Wait for Prometheus Pod to be Running
   kubernetes.core.k8s_info:
     kind: Pod
