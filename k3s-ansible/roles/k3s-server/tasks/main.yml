@@ -70,7 +70,7 @@
   delay: 10
 
 - name: Label worker nodes
-  shell: kubectl label node {{ hostvars[item]['ansible_hostname'] }} node-role.kubernetes.io/worker=worker --overwrite
+  shell: kubectl label node {{ hostvars[item]['ansible_facts']['hostname'] }} node-role.kubernetes.io/worker=worker --overwrite
   loop: "{{ groups['agents'] }}"
   ignore_errors: true
 
