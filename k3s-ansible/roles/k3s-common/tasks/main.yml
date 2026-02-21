@@ -1,9 +1,14 @@
 ---
-# 1. 패키지 매니저(apt) 캐시 업데이트
+# 1. 패키지 매니저(apt) 캐시 업데이트 (재시도 로직 추가됨)
 - name: Update apt cache
   apt:
     update_cache: yes
+    force_apt_get: yes
     cache_valid_time: 3600
+  register: apt_status       # 결과 저장
+  until: apt_status is success # 성공할 때까지
+  retries: 10                # 10번 재시도
+  delay: 10                  # 10초 간격으로
 
 # 2. 필수 기본 패키지 설치
 # K3s는 단일 바이너리지만 curl(설치용)과 필수 런타임 라이브러리는 필요합니다.
