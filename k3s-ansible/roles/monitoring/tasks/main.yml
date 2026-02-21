@@ -70,7 +70,7 @@
   become: yes
   ignore_errors: yes # 만약 지울 게 없어도 에러 내지 말고 다음으로 넘어가라는 뜻입니다.
 
-# 7. Helm 배포 (atomic 옵션 유지)
+# 7. Helm 배포
 - name: Deploy kube-prometheus-stack
   kubernetes.core.helm:
     name: monitoring
@@ -78,11 +78,10 @@
     release_namespace: "{{ monitoring_namespace }}"
     values_files:
       - /tmp/monitor-values.yml
-    force: yes             # <--- 추가: 기존에 꼬인 리소스(Pending 상태 등)를 강제로 교체합니다.
-    cleanup_on_fail: yes    # <--- 추가: 배포 실패 시 찌꺼기를 남기지 않고 정리합니다.
+    force: yes             # 강제 업데이트 (필수)
     skip_crds: false 
     wait: yes
-    atomic: true
+    atomic: true           # 실패 시 자동 롤백 (이게 청소 역할 대체함)
     timeout: 15m0s
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
