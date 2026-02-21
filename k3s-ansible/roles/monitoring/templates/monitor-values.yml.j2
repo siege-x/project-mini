@@ -6,8 +6,6 @@ grafana:
   grafana.ini:
     server:
       root_url: "http://{{ cluster_ip }}:{{ grafana_node_port }}"
-  nodeSelector:
-    kubernetes.io/hostname: "{{ target_node }}"
   
   # [추가] 데이터 보존을 위한 스토리지 설정
   persistence:
@@ -25,8 +23,6 @@ grafana:
 prometheus:
   prometheusSpec:
     retention: 7d
-    nodeSelector:
-      kubernetes.io/hostname: "{{ target_node }}"
     
     # [추가] 데이터 보존을 위한 스토리지 설정
     storageSpec:
