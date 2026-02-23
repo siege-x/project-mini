@@ -73,7 +73,18 @@ resource "aws_security_group" "agent_sg" {
     cidr_blocks = [aws_subnet.public.cidr_block]
   }
   
-  # 2. Nginx 접속 허용 (30080)
+  # 2. [핵심 추가] 같은 보안 그룹끼리는 무조건 통신 허용 (Self Reference)
+  # - Prometheus Scraping (10250, 9100)
+  # - K3s Flannel VXLAN (8472)
+  # - Pod to Pod communication
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    self        = true
+  }
+
+  # 3. Nginx 접속 허용 (30080)
   ingress { 
     from_port   = 30080
     to_port     = 30080
@@ -81,7 +92,7 @@ resource "aws_security_group" "agent_sg" {
     cidr_blocks = ["0.0.0.0/0"] 
   }
 
-  # 3. Grafana 접속 허용 (30000) - 내부 통신용
+  # 4. Grafana 접속 허용 (30000)
   ingress { 
     from_port   = 30000
     to_port     = 30000
@@ -89,7 +100,7 @@ resource "aws_security_group" "agent_sg" {
     cidr_blocks = ["0.0.0.0/0"] 
   }
 
-  # 4. 외부로 나가는 트래픽 허용 (Server를 통해 나감)
+  # 5. 외부로 나가는 트래픽 허용
   egress { 
     from_port   = 0
     to_port     = 0
